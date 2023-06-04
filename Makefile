@@ -1,9 +1,5 @@
 all: help
 
-bench: build ## runs the ebnchmark and creates a chart.html
-	./bench/run.sh | tee bench.out
-	cat bench.out | ./bench/chart.py > chart.html
-
 build: ## compiles the whole code base
 	@go version
 	go build -v ./...

@@ -125,7 +125,6 @@ func (m *RobinHood[K, V]) grow() {
 	m.resize(capacity * resizeFactor)
 }
 
-// go:inline
 func (m *RobinHood[K, V]) resize(n uintptr) {
 	// extra space, that is at the same time the worse case lookup time
 	log2Cap := (3 * uintptr(Log2(uint64(n)))) / 2
@@ -140,7 +139,7 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 
 	for _, current := range m.buckets {
 		if current.psl != emptyBucket {
-			newm.Put(current.key, current.value)
+			newm.emplaceNewWithIndexing(current.key, current.value)
 		}
 	}
 	m.capMinus1 = newm.capMinus1
@@ -150,37 +149,41 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 
 // Put maps the given key to the given value. If the key already exists its
 // value will be overwritten with the new value. Signals if the key is new in the map.
+// go:inline
 func (m *RobinHood[K, V]) Put(key K, val V) bool {
 
 	current, idx, psl := m.getBucket(key)
-
-	// override old value
 	if current != nil {
+		// override old value
 		current.value = val
 		return false
 	}
 
-	m.emplace(bucket[K, V]{key: key, value: val, psl: psl}, idx)
-	return true // new value
+	// check if a resize is needed for the new pair
+	if m.length >= m.capMinus1 || m.Load() > m.maxLoad {
+		m.grow()
+		m.emplaceNewWithIndexing(key, val)
+	} else {
+		m.emplaceNew(bucket[K, V]{key: key, value: val, psl: psl}, idx)
+	}
+	return true
 }
 
-// emplace applies the Robin Hood creed to all following buckets until a empty is found.
+// emplace_new2 expects that the key value pair is not already inserted
+// go:inline
+func (m *RobinHood[K, V]) emplaceNewWithIndexing(key K, val V) {
+	_, idx, psl := m.getBucket(key)
+	m.emplaceNew(bucket[K, V]{key: key, value: val, psl: psl}, idx)
+}
+
+// emplaceNew applies the Robin Hood creed to all following buckets until a empty is found.
 // Robin Hood creed: "takes from the rich and gives to the poor".
 // rich means, low psl
 // poor means, higher psl
 //
 // The result is a normal distribution of the PSL values,
 // where the expected length of the longest PSL is O(log(n))
-// go:inline
-func (m *RobinHood[K, V]) emplace(current bucket[K, V], idx uintptr) {
-
-	if m.length >= m.capMinus1 || m.Load() > m.maxLoad {
-		//fmt.Println("load: ", m.Load())
-		m.grow()
-		m.Put(current.key, current.value)
-		return
-	}
-
+func (m *RobinHood[K, V]) emplaceNew(current bucket[K, V], idx uintptr) {
 	for ; ; current.psl++ {
 		if m.buckets[idx].psl == emptyBucket {
 			// emplace the element, a valid bucket was found
@@ -190,9 +193,8 @@ func (m *RobinHood[K, V]) emplace(current bucket[K, V], idx uintptr) {
 		}
 		// force resize to leave out overflow check of m.buckets
 		if current.psl >= m.log2Cap {
-			//fmt.Println("load: ", m.Load())
 			m.grow()
-			m.Put(current.key, current.value)
+			m.emplaceNewWithIndexing(current.key, current.value)
 			return
 		}
 		if current.psl > m.buckets[idx].psl {

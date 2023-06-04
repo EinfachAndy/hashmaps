@@ -77,7 +77,7 @@ func TestCrossCheck(t *testing.T) {
 					t.Fatalf("lookup failed after insert for key %d", key)
 				}
 				if v != val {
-					t.Fatalf("value are not equal %d != %d", v, val)
+					t.Fatalf("values are not equal %d != %d", v, val)
 				}
 			case 3:
 				var del uint64
