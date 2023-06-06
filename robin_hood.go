@@ -75,8 +75,7 @@ func NewRobinHoodWithHasher[K comparable, V any](hasher HashFn[K]) *RobinHood[K,
 	}
 }
 
-// getBucket return a pointer to the bucket if the key was found.
-// Furthermore the index of the underlying array and the psl is returned.
+// Get returns the value stored for this key, or false if there is no such value.
 //
 // Note:
 //   - There exists also other search strategies like organ-pipe search
@@ -84,30 +83,16 @@ func NewRobinHoodWithHasher[K comparable, V any](hasher HashFn[K]) *RobinHood[K,
 //     (mean, mean − 1, mean + 1, mean − 2, mean + 2, ...)
 //   - Here it is used the simplest technic, which is more cache friendly and
 //     does not track other metic values.
-//
-// go:inline
-func (m *RobinHood[K, V]) getBucket(key K) (*bucket[K, V], uintptr, int8) {
-	hash := m.hasher(key)
-	idx := hash & m.capMinus1
-
-	psl := int8(0)
-	for ; psl <= m.buckets[idx].psl; psl++ {
+func (m *RobinHood[K, V]) Get(key K) (V, bool) {
+	idx := m.hasher(key) & m.capMinus1
+	for psl := int8(0); psl <= m.buckets[idx].psl; psl++ {
 		if m.buckets[idx].key == key {
-			return &m.buckets[idx], idx, psl
+			return m.buckets[idx].value, true
 		}
 		idx++
 	}
-	return nil, idx, psl
-}
-
-// Get returns the value stored for this key, or false if there is no such value.
-func (m *RobinHood[K, V]) Get(key K) (V, bool) {
 	var v V
-	current, _, _ := m.getBucket(key)
-	if current == nil {
-		return v, false
-	}
-	return current.value, true
+	return v, false
 }
 
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
@@ -148,15 +133,20 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 }
 
 // Put maps the given key to the given value. If the key already exists its
-// value will be overwritten with the new value. Signals if the key is new in the map.
+// value will be overwritten with the new value.
+// Returns true, if the element is a new item in the hash map.
 // go:inline
 func (m *RobinHood[K, V]) Put(key K, val V) bool {
 
-	current, idx, psl := m.getBucket(key)
-	if current != nil {
-		// override old value
-		current.value = val
-		return false
+	// search for the key
+	idx := m.hasher(key) & m.capMinus1
+	psl := int8(0)
+	for ; psl <= m.buckets[idx].psl; psl++ {
+		if m.buckets[idx].key == key {
+			m.buckets[idx].value = val
+			return false // update already existing value
+		}
+		idx++
 	}
 
 	// check if a resize is needed for the new pair
@@ -169,11 +159,11 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 	return true
 }
 
-// emplace_new2 expects that the key value pair is not already inserted
+// emplaceNewWithIndexing expects that the key value pair is not already inserted
 // go:inline
 func (m *RobinHood[K, V]) emplaceNewWithIndexing(key K, val V) {
-	_, idx, psl := m.getBucket(key)
-	m.emplaceNew(bucket[K, V]{key: key, value: val, psl: psl}, idx)
+	idx := m.hasher(key) & m.capMinus1
+	m.emplaceNew(bucket[K, V]{key: key, value: val, psl: 0}, idx)
 }
 
 // emplaceNew applies the Robin Hood creed to all following buckets until a empty is found.
@@ -198,7 +188,8 @@ func (m *RobinHood[K, V]) emplaceNew(current bucket[K, V], idx uintptr) {
 			return
 		}
 		if current.psl > m.buckets[idx].psl {
-			current, m.buckets[idx] = m.buckets[idx], current // swap values
+			// swap values, apply the Robin Hood creed
+			current, m.buckets[idx] = m.buckets[idx], current
 		}
 
 		idx++
@@ -208,18 +199,28 @@ func (m *RobinHood[K, V]) emplaceNew(current bucket[K, V], idx uintptr) {
 // Remove removes the specified key-value pair from the map.
 // Returns true, if the element was in the hash map.
 func (m *RobinHood[K, V]) Remove(key K) bool {
-	current, idx, _ := m.getBucket(key)
+
+	// search for the key
+	idx := m.hasher(key) & m.capMinus1
+	var current *bucket[K, V] = nil
+	for psl := int8(0); psl <= m.buckets[idx].psl; psl++ {
+		if m.buckets[idx].key == key {
+			current = &m.buckets[idx]
+			break
+		}
+		idx++
+	}
 	if current == nil {
 		return false
 	}
 
+	// remove the key
 	m.length--
 	current.psl = emptyBucket // make as empty, because we want to remove it
 
+	// now, back shift all buckets until we found a optimum or empty one
 	idx++
 	next := &m.buckets[idx]
-
-	// now, back shift all buckets until we found a optimum or empty one
 	for next.psl > 0 {
 		next.psl--
 		*current, *next = *next, *current // swap values

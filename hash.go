@@ -10,12 +10,6 @@ import (
 // HashFn is a function that returns the hash of 't'.
 type HashFn[T any] func(t T) uintptr
 
-const (
-	prime1 uint64 = 11400714785074694791
-	prime2 uint64 = 14029467366897019727
-	prime3 uint64 = 1609587929392839161
-)
-
 // GetHasher returns a hasher for the given type
 func GetHasher[Key any]() HashFn[Key] {
 	var key Key
@@ -55,62 +49,59 @@ func GetHasher[Key any]() HashFn[Key] {
 	}
 }
 
-var hashByte = func(key uint8) uintptr {
-	h := uint64(key) * prime1
-	h ^= h >> 33
-	h *= prime2
-	h ^= h >> 29
-	return uintptr(h)
+var hashByte = func(in uint8) uintptr {
+	key := uint32(in)
+	key *= 0xcc9e2d51
+	key = (key << 15) | (key >> 17)
+	key *= 0x1b873593
+	return uintptr(key)
 }
 
-var hashWord = func(key uint16) uintptr {
-	h := uint64(key) * prime1
-	h ^= h >> 33
-	h *= prime2
-	h ^= h >> 29
-	return uintptr(h)
+var hashWord = func(in uint16) uintptr {
+	key := uint32(in)
+	key *= 0xcc9e2d51
+	key = (key << 15) | (key >> 17)
+	key *= 0x1b873593
+	return uintptr(key)
 }
 
 var hashDword = func(key uint32) uintptr {
-	h := uint64(key) * prime1
-	h ^= h >> 33
-	h *= prime2
-	h ^= h >> 29
-	return uintptr(h)
+	key *= 0xcc9e2d51
+	key = (key << 15) | (key >> 17)
+	key *= 0x1b873593
+	return uintptr(key)
 }
 
-var hashFloat32 = func(key float32) uintptr {
-	p := unsafe.Pointer(&key)
-	b := *(*uint32)(p)
+var hashFloat32 = func(in float32) uintptr {
+	p := unsafe.Pointer(&in)
+	key := *(*uint32)(p)
 
-	h := uint64(b) * prime1
-	h ^= h >> 33
-	h *= prime2
-	h ^= h >> 29
-	return uintptr(h)
+	key *= 0xcc9e2d51
+	key = (key << 15) | (key >> 17)
+	key *= 0x1b873593
+	return uintptr(key)
 }
 
-var hashFloat64 = func(key float64) uintptr {
-	p := unsafe.Pointer(&key)
-	b := *(*uint64)(p)
+var hashFloat64 = func(in float64) uintptr {
+	p := unsafe.Pointer(&in)
+	key := *(*uint64)(p)
 
-	h := b * prime1
-	h ^= h >> 33
-	h *= prime2
-	h ^= h >> 29
-	h *= prime3
-	h ^= h >> 32
-	return uintptr(h)
+	key ^= (key >> 33)
+	key *= 0xff51afd7ed558ccd
+	key ^= (key >> 33)
+	key *= 0xc4ceb9fe1a85ec53
+	key ^= (key >> 33)
+	return uintptr(key)
 }
 
+// hashQword implements MurmurHash3's 64-bit Finalizer
 var hashQword = func(key uint64) uintptr {
-	h := key * prime1
-	h ^= h >> 33
-	h *= prime2
-	h ^= h >> 29
-	h *= prime3
-	h ^= h >> 32
-	return uintptr(h)
+	key ^= (key >> 33)
+	key *= 0xff51afd7ed558ccd
+	key ^= (key >> 33)
+	key *= 0xc4ceb9fe1a85ec53
+	key ^= (key >> 33)
+	return uintptr(key)
 }
 
 // fnv1aModified implements a simpler and faster variant of the fnv1a algorithm, that seems good enough for string hashing.
