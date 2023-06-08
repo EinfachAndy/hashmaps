@@ -10,7 +10,7 @@ import (
 // HashFn is a function that returns the hash of 't'.
 type HashFn[T any] func(t T) uintptr
 
-// GetHasher returns a hasher for the given type
+// GetHasher returns a hasher for the golang default types.
 func GetHasher[Key any]() HashFn[Key] {
 	var key Key
 	kind := reflect.ValueOf(&key).Elem().Type().Kind()
@@ -26,7 +26,7 @@ func GetHasher[Key any]() HashFn[Key] {
 			return *(*func(Key) uintptr)(unsafe.Pointer(&hashQword))
 
 		default:
-			panic(fmt.Errorf("unsupported integer byte size"))
+			panic("unsupported integer byte size")
 		}
 
 	case reflect.Int8, reflect.Uint8:
@@ -45,7 +45,7 @@ func GetHasher[Key any]() HashFn[Key] {
 		return *(*func(Key) uintptr)(unsafe.Pointer(&fnv1aModified))
 
 	default:
-		panic(fmt.Errorf("unsupported key type %T of kind %v", key, kind))
+		panic(fmt.Sprintf("unsupported key type %T of kind %v", key, kind))
 	}
 }
 

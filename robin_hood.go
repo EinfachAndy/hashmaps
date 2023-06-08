@@ -1,11 +1,18 @@
 package hashmaps
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 const (
 	emptyBucket    = -1
 	resizeFactor   = 2
 	defaultMaxLoad = 0.8
+)
+
+var (
+	ErrOutOfRange = errors.New("out of range")
 )
 
 type bucket[K comparable, V any] struct {
@@ -62,7 +69,6 @@ func NewRobinHood[K comparable, V any]() *RobinHood[K, V] {
 
 // NewRobinHoodWithHasher same as `NewRobinHood` but with a given hash function.
 func NewRobinHoodWithHasher[K comparable, V any](hasher HashFn[K]) *RobinHood[K, V] {
-
 	capacity := uintptr(4)
 	log2Cap := uintptr(2)
 
@@ -137,7 +143,6 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 // Returns true, if the element is a new item in the hash map.
 // go:inline
 func (m *RobinHood[K, V]) Put(key K, val V) bool {
-
 	// search for the key
 	idx := m.hasher(key) & m.capMinus1
 	psl := int8(0)
@@ -199,7 +204,6 @@ func (m *RobinHood[K, V]) emplaceNew(current bucket[K, V], idx uintptr) {
 // Remove removes the specified key-value pair from the map.
 // Returns true, if the element was in the hash map.
 func (m *RobinHood[K, V]) Remove(key K) bool {
-
 	// search for the key
 	idx := m.hasher(key) & m.capMinus1
 	var current *bucket[K, V] = nil
@@ -247,7 +251,7 @@ func (m *RobinHood[K, V]) Load() float32 {
 // useful values are in range [0.5-0.9]
 func (m *RobinHood[K, V]) MaxLoad(lf float32) error {
 	if lf <= 0.0 || lf >= 1.0 {
-		return fmt.Errorf("lf must be in range (0.0 - 1.0)")
+		return fmt.Errorf("%f: %w", lf, ErrOutOfRange)
 	}
 	m.maxLoad = lf
 	return nil
