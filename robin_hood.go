@@ -119,7 +119,7 @@ func (m *RobinHood[K, V]) grow() {
 
 func (m *RobinHood[K, V]) resize(n uintptr) {
 	// extra space, that is at the same time the worse case lookup time
-	log2Cap := (3 * uintptr(Log2(uint64(n)))) / 2
+	log2Cap := uintptr(Log2(uint64(n)))
 	newm := RobinHood[K, V]{
 		capMinus1: n - 1,
 		log2Cap:   int8(log2Cap),
@@ -142,8 +142,11 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 // Put maps the given key to the given value. If the key already exists its
 // value will be overwritten with the new value.
 // Returns true, if the element is a new item in the hash map.
-// go:inline
 func (m *RobinHood[K, V]) Put(key K, val V) bool {
+	if m.length >= m.capMinus1 || m.Load() > m.maxLoad {
+		m.grow()
+	}
+
 	// search for the key
 	idx := m.hasher(key) & m.capMinus1
 	psl := int8(0)
@@ -154,15 +157,9 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 		}
 		idx++
 	}
+	m.length++
 	newBucket := bucket[K, V]{key: key, value: val, psl: psl}
-
-	// check if a resize is needed for the new pair
-	if m.length >= m.capMinus1 || m.Load() > m.maxLoad {
-		m.grow()
-		m.emplaceNewWithIndexing(&newBucket)
-	} else {
-		m.emplaceNew(&newBucket, idx)
-	}
+	m.emplaceNew(&newBucket, idx)
 	return true
 }
 
@@ -186,7 +183,6 @@ func (m *RobinHood[K, V]) emplaceNew(current *bucket[K, V], idx uintptr) {
 		if m.buckets[idx].psl == emptyBucket {
 			// emplace the element, a valid bucket was found
 			m.buckets[idx] = *current
-			m.length++
 			return
 		}
 		// force resize to leave out overflow check of m.buckets
@@ -243,6 +239,7 @@ func (m *RobinHood[K, V]) Clear() {
 	for idx := range m.buckets {
 		m.buckets[idx].psl = emptyBucket
 	}
+	m.length = 0
 }
 
 // Load return the current load of the hash map.

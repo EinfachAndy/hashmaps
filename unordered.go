@@ -119,6 +119,7 @@ func (m *Unordered[K, V]) Clear() {
 	for idx := range m.buckets {
 		m.buckets[idx].head = nil
 	}
+	m.length = 0
 }
 
 // Size returns the number of items in the map.

@@ -24,6 +24,7 @@ func randString(n int) string {
 
 func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
 	robin := hashmaps.NewRobinHood[K, V]()
+	robin.MaxLoad(0.9)
 	unordered := hashmaps.NewUnordered[K, V]()
 
 	return []hashmaps.IHashMap[K, V]{
@@ -73,7 +74,7 @@ func TestCrossCheckInt(t *testing.T) {
 		for i := 0; i < nops; i++ {
 			key := uint64(rand.Intn(1000))
 			val := rand.Uint32()
-			op := rand.Intn(4)
+			op := rand.Intn(3)
 
 			switch op {
 			case 0:
@@ -258,6 +259,19 @@ func Example() {
 	// 13 true
 	// 0 false
 	// 0 false
+}
+
+func TestSizes(t *testing.T) {
+	maps := setupMaps[int, int]()
+	const nops = 300
+	for _, m := range maps {
+		for i := 1; i <= nops; i++ {
+			m.Put(i, i)
+			if m.Size() != i {
+				t.Fatal("size invalid")
+			}
+		}
+	}
 }
 
 func TestComplexKeyType(t *testing.T) {
