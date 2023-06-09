@@ -23,11 +23,22 @@ func randString(n int) string {
 }
 
 func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
-	robin := hashmaps.NewRobinHood[K, V]()
+	var (
+		robin     = hashmaps.NewRobinHood[K, V]()
+		unordered = hashmaps.NewUnordered[K, V]()
+		flat      = hashmaps.NewFlat[K, V]()
+	)
 	robin.MaxLoad(0.9)
-	unordered := hashmaps.NewUnordered[K, V]()
 
 	return []hashmaps.IHashMap[K, V]{
+		{
+			Get:    flat.Get,
+			Put:    flat.Put,
+			Remove: flat.Remove,
+			Size:   flat.Size,
+			Each:   flat.Each,
+			Load:   flat.Load,
+		},
 		{
 			Get:    unordered.Get,
 			Put:    unordered.Put,
@@ -72,9 +83,9 @@ func TestCrossCheckInt(t *testing.T) {
 	for _, m := range maps {
 		stdm := make(map[uint64]uint32)
 		for i := 0; i < nops; i++ {
-			key := uint64(rand.Intn(1000))
+			key := uint64(rand.Intn(1000)) + 1
 			val := rand.Uint32()
-			op := rand.Intn(3)
+			op := rand.Intn(4)
 
 			switch op {
 			case 0:
@@ -215,7 +226,7 @@ func TestCrossCheckString(t *testing.T) {
 func TestCopy(t *testing.T) {
 	orig := hashmaps.NewRobinHood[uint64, uint32]()
 
-	for i := uint32(0); i < 10; i++ {
+	for i := uint32(1); i <= 10; i++ {
 		orig.Put(uint64(i), i)
 	}
 
@@ -287,7 +298,16 @@ func TestComplexKeyType(t *testing.T) {
 	}
 	robin := hashmaps.NewRobinHoodWithHasher[dummy, string](hasher)
 	unordered := hashmaps.NewUnorderedWithHasher[dummy, string](hasher)
+	flat := hashmaps.NewFlatWithHasher[dummy, string](dummy{}, hasher)
 	maps := []hashmaps.IHashMap[dummy, string]{
+		{
+			Get:    flat.Get,
+			Put:    flat.Put,
+			Remove: flat.Remove,
+			Size:   flat.Size,
+			Each:   flat.Each,
+			Load:   flat.Load,
+		},
 		{
 			Get:    robin.Get,
 			Put:    robin.Put,
