@@ -12,6 +12,7 @@ const (
 )
 
 var (
+	// ErrOutOfRange signals an out of range request
 	ErrOutOfRange = errors.New("out of range")
 )
 
@@ -73,7 +74,7 @@ func NewRobinHoodWithHasher[K comparable, V any](hasher HashFn[K]) *RobinHood[K,
 	log2Cap := uintptr(2)
 
 	return &RobinHood[K, V]{
-		buckets:   newBucketArray[K, V](capacity + log2Cap + 1),
+		buckets:   newBucketArray[K, V](capacity + log2Cap + 2),
 		capMinus1: capacity - 1,
 		log2Cap:   int8(log2Cap),
 		hasher:    hasher,
@@ -123,14 +124,14 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 		capMinus1: n - 1,
 		log2Cap:   int8(log2Cap),
 		length:    m.length,
-		buckets:   newBucketArray[K, V](n + log2Cap + 1),
+		buckets:   newBucketArray[K, V](n + log2Cap + 2),
 		hasher:    m.hasher,
 		maxLoad:   m.maxLoad,
 	}
 
 	for _, current := range m.buckets {
 		if current.psl != emptyBucket {
-			newm.emplaceNewWithIndexing(current.key, current.value)
+			newm.emplaceNewWithIndexing(&current)
 		}
 	}
 	m.capMinus1 = newm.capMinus1
@@ -153,22 +154,24 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 		}
 		idx++
 	}
+	newBucket := bucket[K, V]{key: key, value: val, psl: psl}
 
 	// check if a resize is needed for the new pair
 	if m.length >= m.capMinus1 || m.Load() > m.maxLoad {
 		m.grow()
-		m.emplaceNewWithIndexing(key, val)
+		m.emplaceNewWithIndexing(&newBucket)
 	} else {
-		m.emplaceNew(bucket[K, V]{key: key, value: val, psl: psl}, idx)
+		m.emplaceNew(&newBucket, idx)
 	}
 	return true
 }
 
 // emplaceNewWithIndexing expects that the key value pair is not already inserted
 // go:inline
-func (m *RobinHood[K, V]) emplaceNewWithIndexing(key K, val V) {
-	idx := m.hasher(key) & m.capMinus1
-	m.emplaceNew(bucket[K, V]{key: key, value: val, psl: 0}, idx)
+func (m *RobinHood[K, V]) emplaceNewWithIndexing(current *bucket[K, V]) {
+	idx := m.hasher(current.key) & m.capMinus1
+	current.psl = 0
+	m.emplaceNew(current, idx)
 }
 
 // emplaceNew applies the Robin Hood creed to all following buckets until a empty is found.
@@ -178,23 +181,23 @@ func (m *RobinHood[K, V]) emplaceNewWithIndexing(key K, val V) {
 //
 // The result is a normal distribution of the PSL values,
 // where the expected length of the longest PSL is O(log(n))
-func (m *RobinHood[K, V]) emplaceNew(current bucket[K, V], idx uintptr) {
+func (m *RobinHood[K, V]) emplaceNew(current *bucket[K, V], idx uintptr) {
 	for ; ; current.psl++ {
 		if m.buckets[idx].psl == emptyBucket {
 			// emplace the element, a valid bucket was found
-			m.buckets[idx] = current
+			m.buckets[idx] = *current
 			m.length++
 			return
 		}
 		// force resize to leave out overflow check of m.buckets
 		if current.psl >= m.log2Cap {
 			m.grow()
-			m.emplaceNewWithIndexing(current.key, current.value)
+			m.emplaceNewWithIndexing(current)
 			return
 		}
 		if current.psl > m.buckets[idx].psl {
 			// swap values, apply the Robin Hood creed
-			current, m.buckets[idx] = m.buckets[idx], current
+			*current, m.buckets[idx] = m.buckets[idx], *current
 		}
 
 		idx++
@@ -248,7 +251,8 @@ func (m *RobinHood[K, V]) Load() float32 {
 }
 
 // MaxLoad forces resizing if the ratio is reached.
-// useful values are in range [0.5-0.9]
+// Useful values are in range [0.5-0.9].
+// Returns ErrOutOfRange if `lf` is not in the open range (0.0,1.0).
 func (m *RobinHood[K, V]) MaxLoad(lf float32) error {
 	if lf <= 0.0 || lf >= 1.0 {
 		return fmt.Errorf("%f: %w", lf, ErrOutOfRange)
