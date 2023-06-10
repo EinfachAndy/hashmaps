@@ -1,8 +1,13 @@
 # Golang Hash Maps
 
+[![GoDoc](https://pkg.go.dev/badge/github.com/EinfachAndy/hashmaps.svg)](https://pkg.go.dev/github.com/EinfachAndy/hashmaps)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/EinfachAndy/hashmaps/blob/main/LICENSE)
 
-This package collects several hash maps. The first one is a robin hood hash map implementation.
+This package collects several hash map implementations:
+
+* `Unordered` Hash Map, a classic hash table with separate chaining in a single linked list per bucket to handle collisions.
+* `Robin Hood` Hash Map, an open addressing hash table with robin hood hashing and back shifting.
+* `Flat` Hash Map, an open addressing hash table with linear probing. 
 
 # Getting Started
 
