@@ -43,7 +43,8 @@ type RobinHood[K comparable, V any] struct {
 	length uintptr
 	// capMinus1 is used for a bitwise AND on the hash value,
 	// because the size of the underlying array is a power of two value
-	capMinus1 uintptr
+	capMinus1  uintptr
+	nextResize uintptr
 
 	maxLoad float32
 }
@@ -65,12 +66,12 @@ func NewRobinHood[K comparable, V any]() *RobinHood[K, V] {
 // NewRobinHoodWithHasher same as `NewRobinHood` but with a given hash function.
 func NewRobinHoodWithHasher[K comparable, V any](hasher HashFn[K]) *RobinHood[K, V] {
 	capacity := uintptr(4)
-
 	return &RobinHood[K, V]{
-		buckets:   newBucketArray[K, V](capacity),
-		capMinus1: capacity - 1,
-		hasher:    hasher,
-		maxLoad:   defaultMaxLoad,
+		buckets:    newBucketArray[K, V](capacity),
+		capMinus1:  capacity - 1,
+		hasher:     hasher,
+		nextResize: 2,
+		maxLoad:    defaultMaxLoad,
 	}
 }
 
@@ -99,31 +100,29 @@ func (m *RobinHood[K, V]) Get(key K) (V, bool) {
 // If n is lower than that, the function may have no effect.
 func (m *RobinHood[K, V]) Reserve(n uintptr) {
 	newCap := uintptr(NextPowerOf2(uint64(n * 2)))
-	if (m.capMinus1 + 1) < newCap {
+	if uintptr(cap(m.buckets)) < newCap {
 		m.resize(newCap)
 	}
 }
 
-// go:inline
-func (m *RobinHood[K, V]) grow() {
-	capacity := m.capMinus1 + 1
-	m.resize(capacity * 2)
-}
-
 func (m *RobinHood[K, V]) resize(n uintptr) {
 	newm := RobinHood[K, V]{
-		capMinus1: n - 1,
-		length:    m.length,
-		buckets:   newBucketArray[K, V](n),
-		hasher:    m.hasher,
-		maxLoad:   m.maxLoad,
+		capMinus1:  n - 1,
+		length:     m.length,
+		buckets:    newBucketArray[K, V](n),
+		hasher:     m.hasher,
+		maxLoad:    m.maxLoad,
+		nextResize: uintptr(float32(n) * m.maxLoad),
 	}
 
 	for _, current := range m.buckets {
 		if current.psl != emptyBucket {
-			newm.emplaceNewWithIndexing(&current)
+			idx := newm.hasher(current.key) & newm.capMinus1
+			current.psl = 0
+			newm.emplaceNew(&current, idx)
 		}
 	}
+	m.nextResize = newm.nextResize
 	m.capMinus1 = newm.capMinus1
 	m.buckets = newm.buckets
 }
@@ -132,8 +131,8 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 // value will be overwritten with the new value.
 // Returns true, if the element is a new item in the hash map.
 func (m *RobinHood[K, V]) Put(key K, val V) bool {
-	if m.length >= m.capMinus1 || m.Load() > m.maxLoad {
-		m.grow()
+	if m.length >= m.nextResize {
+		m.resize(uintptr(cap(m.buckets)) * 2)
 	}
 
 	// search for the key
@@ -148,17 +147,11 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 		idx = (idx + 1) & m.capMinus1
 	}
 	m.length++
+
 	newBucket := bucket[K, V]{key: key, value: val, psl: psl}
 	m.emplaceNew(&newBucket, idx)
-	return true
-}
 
-// emplaceNewWithIndexing expects that the key value pair is not already inserted
-// go:inline
-func (m *RobinHood[K, V]) emplaceNewWithIndexing(current *bucket[K, V]) {
-	idx := m.hasher(current.key) & m.capMinus1
-	current.psl = 0
-	m.emplaceNew(current, idx)
+	return true
 }
 
 // emplaceNew applies the Robin Hood creed to all following buckets until a empty is found.
@@ -166,8 +159,10 @@ func (m *RobinHood[K, V]) emplaceNewWithIndexing(current *bucket[K, V]) {
 // rich means, low psl
 // poor means, higher psl
 //
-// The result is a normal distribution of the PSL values,
-// where the expected length of the longest PSL is O(log(n))
+// The result is a better distribution of the PSL values,
+// where the expected length of the longest PSL is O(log(n)).
+//
+// go:inline
 func (m *RobinHood[K, V]) emplaceNew(current *bucket[K, V], idx uintptr) {
 	for ; ; current.psl++ {
 		if m.buckets[idx].psl == emptyBucket {
@@ -240,6 +235,7 @@ func (m *RobinHood[K, V]) MaxLoad(lf float32) error {
 		return fmt.Errorf("%f: %w", lf, ErrOutOfRange)
 	}
 	m.maxLoad = lf
+	m.nextResize = uintptr(float32(cap(m.buckets)) * lf)
 	return nil
 }
 
@@ -251,11 +247,12 @@ func (m *RobinHood[K, V]) Size() int {
 // Copy returns a copy of this map.
 func (m *RobinHood[K, V]) Copy() *RobinHood[K, V] {
 	newM := &RobinHood[K, V]{
-		buckets:   make([]bucket[K, V], len(m.buckets)),
-		capMinus1: m.capMinus1,
-		length:    m.length,
-		hasher:    m.hasher,
-		maxLoad:   m.maxLoad,
+		buckets:    make([]bucket[K, V], len(m.buckets)),
+		capMinus1:  m.capMinus1,
+		length:     m.length,
+		hasher:     m.hasher,
+		maxLoad:    m.maxLoad,
+		nextResize: m.nextResize,
 	}
 	copy(newM.buckets, m.buckets)
 	return newM
