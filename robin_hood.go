@@ -7,7 +7,6 @@ import (
 
 const (
 	emptyBucket    = -1
-	resizeFactor   = 2
 	defaultMaxLoad = 0.8
 )
 
@@ -28,15 +27,15 @@ type bucket[K comparable, V any] struct {
 }
 
 // RobinHood is a hash map that uses linear probing in combination with
-// robin hood hashing as collision strategy. The hashmap resizes if the
-// max PSL reached log2(n). This means that all operations including
-// Get, Put, Remove have a worse case performance of O(log(n)). The expected
-// max PSL for a full robin hood hash map is O(ln(n)), means a resizing
-// happens at a expected default load of 0.8. The max load factor can be changed with `MaxLoad()`.
+// robin hood hashing as collision strategy. The map tracks the distance
+// from the optimum bucket and minimized the variance over all buckets.
+// The expected max PSL for a full robin hood hash map is O(ln(n)).
+// The max load factor can be changed with `MaxLoad()`.
 // The result is a good trade off between performance and memory consumption.
 // Note that the performance for a open addressing hash map depends
 // also on the key and value size. For higher storage sizes for the
-// keys and values use a hashmap that uses another strategy like the golang std map.
+// keys and values use a hashmap that uses another strategy
+// like the golang std map or the Unordered map.
 type RobinHood[K comparable, V any] struct {
 	buckets []bucket[K, V]
 	hasher  HashFn[K]
@@ -45,11 +44,6 @@ type RobinHood[K comparable, V any] struct {
 	// capMinus1 is used for a bitwise AND on the hash value,
 	// because the size of the underlying array is a power of two value
 	capMinus1 uintptr
-	// log2Cap is the number of extra reserved bytes at the end of the array,
-	// to sparse the length check while probing.
-	// Furthermore this value is the maximum possible PSL over the hash map,
-	// because a grow is forced if this value will raised during the insert operation.
-	log2Cap int8
 
 	maxLoad float32
 }
@@ -71,12 +65,10 @@ func NewRobinHood[K comparable, V any]() *RobinHood[K, V] {
 // NewRobinHoodWithHasher same as `NewRobinHood` but with a given hash function.
 func NewRobinHoodWithHasher[K comparable, V any](hasher HashFn[K]) *RobinHood[K, V] {
 	capacity := uintptr(4)
-	log2Cap := uintptr(2)
 
 	return &RobinHood[K, V]{
-		buckets:   newBucketArray[K, V](capacity + log2Cap + 2),
+		buckets:   newBucketArray[K, V](capacity),
 		capMinus1: capacity - 1,
-		log2Cap:   int8(log2Cap),
 		hasher:    hasher,
 		maxLoad:   defaultMaxLoad,
 	}
@@ -96,7 +88,8 @@ func (m *RobinHood[K, V]) Get(key K) (V, bool) {
 		if m.buckets[idx].key == key {
 			return m.buckets[idx].value, true
 		}
-		idx++
+		// next index
+		idx = (idx + 1) & m.capMinus1
 	}
 	var v V
 	return v, false
@@ -105,7 +98,7 @@ func (m *RobinHood[K, V]) Get(key K) (V, bool) {
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
 // If n is lower than that, the function may have no effect.
 func (m *RobinHood[K, V]) Reserve(n uintptr) {
-	newCap := uintptr(NextPowerOf2(uint64(resizeFactor * n)))
+	newCap := uintptr(NextPowerOf2(uint64(n * 2)))
 	if (m.capMinus1 + 1) < newCap {
 		m.resize(newCap)
 	}
@@ -114,17 +107,14 @@ func (m *RobinHood[K, V]) Reserve(n uintptr) {
 // go:inline
 func (m *RobinHood[K, V]) grow() {
 	capacity := m.capMinus1 + 1
-	m.resize(capacity * resizeFactor)
+	m.resize(capacity * 2)
 }
 
 func (m *RobinHood[K, V]) resize(n uintptr) {
-	// extra space, that is at the same time the worse case lookup time
-	log2Cap := uintptr(Log2(uint64(n)))
 	newm := RobinHood[K, V]{
 		capMinus1: n - 1,
-		log2Cap:   int8(log2Cap),
 		length:    m.length,
-		buckets:   newBucketArray[K, V](n + log2Cap + 2),
+		buckets:   newBucketArray[K, V](n),
 		hasher:    m.hasher,
 		maxLoad:   m.maxLoad,
 	}
@@ -135,7 +125,6 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 		}
 	}
 	m.capMinus1 = newm.capMinus1
-	m.log2Cap = newm.log2Cap
 	m.buckets = newm.buckets
 }
 
@@ -155,7 +144,8 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 			m.buckets[idx].value = val
 			return false // update already existing value
 		}
-		idx++
+		// next index
+		idx = (idx + 1) & m.capMinus1
 	}
 	m.length++
 	newBucket := bucket[K, V]{key: key, value: val, psl: psl}
@@ -185,18 +175,12 @@ func (m *RobinHood[K, V]) emplaceNew(current *bucket[K, V], idx uintptr) {
 			m.buckets[idx] = *current
 			return
 		}
-		// force resize to leave out overflow check of m.buckets
-		if current.psl >= m.log2Cap {
-			m.grow()
-			m.emplaceNewWithIndexing(current)
-			return
-		}
 		if current.psl > m.buckets[idx].psl {
 			// swap values, apply the Robin Hood creed
 			*current, m.buckets[idx] = m.buckets[idx], *current
 		}
-
-		idx++
+		// next index
+		idx = (idx + 1) & m.capMinus1
 	}
 }
 
@@ -211,7 +195,8 @@ func (m *RobinHood[K, V]) Remove(key K) bool {
 			current = &m.buckets[idx]
 			break
 		}
-		idx++
+		// next index
+		idx = (idx + 1) & m.capMinus1
 	}
 	if current == nil {
 		return false
@@ -222,13 +207,13 @@ func (m *RobinHood[K, V]) Remove(key K) bool {
 	current.psl = emptyBucket // make as empty, because we want to remove it
 
 	// now, back shift all buckets until we found a optimum or empty one
-	idx++
+	idx = (idx + 1) & m.capMinus1
 	next := &m.buckets[idx]
 	for next.psl > 0 {
 		next.psl--
 		*current, *next = *next, *current // swap values
 		current = next
-		idx++
+		idx = (idx + 1) & m.capMinus1
 		next = &m.buckets[idx]
 	}
 	return true
@@ -268,7 +253,6 @@ func (m *RobinHood[K, V]) Copy() *RobinHood[K, V] {
 	newM := &RobinHood[K, V]{
 		buckets:   make([]bucket[K, V], len(m.buckets)),
 		capMinus1: m.capMinus1,
-		log2Cap:   m.log2Cap,
 		length:    m.length,
 		hasher:    m.hasher,
 		maxLoad:   m.maxLoad,
