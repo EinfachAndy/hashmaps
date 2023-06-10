@@ -62,10 +62,9 @@ func (m *Flat[K, V]) Get(key K) (V, bool) {
 		if m.buckets[idx].key == key {
 			return m.buckets[idx].value, true
 		}
-		idx++
-		if idx > m.capMinus1 {
-			idx = 0
-		}
+
+		// next index
+		idx = (idx + 1) & m.capMinus1
 	}
 
 	var v V
@@ -99,10 +98,8 @@ func (m *Flat[K, V]) emplace(key K, val V) {
 			break
 		}
 
-		idx++
-		if idx > m.capMinus1 {
-			idx = 0
-		}
+		// next index
+		idx = (idx + 1) & m.capMinus1
 	}
 
 	// we have a position for emplacing
@@ -129,10 +126,8 @@ func (m *Flat[K, V]) Put(key K, val V) bool {
 			m.buckets[idx].value = val
 			return false
 		}
-		idx++
-		if idx > m.capMinus1 {
-			idx = 0
-		}
+		// next index
+		idx = (idx + 1) & m.capMinus1
 	}
 
 	m.buckets[idx].key = key
