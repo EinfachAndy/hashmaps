@@ -27,10 +27,19 @@ func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
 		robin     = hashmaps.NewRobinHood[K, V]()
 		unordered = hashmaps.NewUnordered[K, V]()
 		flat      = hashmaps.NewFlat[K, V]()
+		hopscotch = hashmaps.NewHopscotch[K, V]()
 	)
 	robin.MaxLoad(0.9)
 
 	return []hashmaps.IHashMap[K, V]{
+		{
+			Get:    hopscotch.Get,
+			Put:    hopscotch.Put,
+			Remove: hopscotch.Remove,
+			Size:   hopscotch.Size,
+			Each:   hopscotch.Each,
+			Load:   hopscotch.Load,
+		},
 		{
 			Get:    flat.Get,
 			Put:    flat.Put,
@@ -146,6 +155,7 @@ func TestCrossCheckInt(t *testing.T) {
 				return v, ok
 			}, t)
 		}
+		fmt.Println("size:", m.Size(), "Load", m.Load())
 	}
 }
 
