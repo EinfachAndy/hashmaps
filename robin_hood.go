@@ -99,7 +99,8 @@ func (m *RobinHood[K, V]) Get(key K) (V, bool) {
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
 // If n is lower than that, the function may have no effect.
 func (m *RobinHood[K, V]) Reserve(n uintptr) {
-	newCap := uintptr(NextPowerOf2(uint64(n * 2)))
+	needed := uintptr(float32(n) / m.maxLoad)
+	newCap := uintptr(NextPowerOf2(uint64(needed)))
 	if uintptr(cap(m.buckets)) < newCap {
 		m.resize(newCap)
 	}
@@ -199,7 +200,7 @@ func (m *RobinHood[K, V]) Remove(key K) bool {
 
 	// remove the key
 	m.length--
-	current.psl = emptyBucket // make as empty, because we want to remove it
+	current.psl = emptyBucket // mark as empty, because we want to remove it
 
 	// now, back shift all buckets until we found a optimum or empty one
 	idx = (idx + 1) & m.capMinus1
