@@ -110,21 +110,15 @@ var fnv1aModified = func(b []byte) uintptr {
 	h := uint64(14695981039346656037)
 
 	for len(b) >= 8 {
-		x := binary.BigEndian.Uint32(b)
-		b = b[4:]
-		y := binary.BigEndian.Uint32(b)
-		b = b[4:]
-		z := (uint64(x) << 32) | uint64(y)
+		z := binary.BigEndian.Uint64(b)
+		b = b[8:]
 		h = (h ^ z) * prime64
 	}
 
 	if len(b) >= 4 {
-		x := binary.BigEndian.Uint16(b)
-		b = b[2:]
-		y := binary.BigEndian.Uint16(b)
-		b = b[2:]
-		z := (uint64(x) << 16) | uint64(y)
-		h = (h ^ z) * prime64
+		z := binary.BigEndian.Uint32(b)
+		b = b[4:]
+		h = (h ^ uint64(z)) * prime64
 	}
 
 	if len(b) >= 2 {
