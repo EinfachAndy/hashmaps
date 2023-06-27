@@ -7,6 +7,7 @@ This package collects several hash map implementations:
 
 * `Unordered` Hash Map, a classic hash table with separate chaining in a single linked list per bucket to handle collisions.
 * `Robin Hood` Hash Map, an open addressing hash table with robin hood hashing and back shifting.
+* `Hopscotch` Hash Map, an open addressing hash table with worst case constant runtime for lookup and delete operations.
 * `Flat` Hash Map, an open addressing hash table with linear probing. 
 
 # Getting Started
