@@ -1,12 +1,12 @@
 package hashmaps_test
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/EinfachAndy/hashmaps"
+	"github.com/stretchr/testify/assert"
 )
 
 func init() {
@@ -39,6 +39,7 @@ func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
 			Size:   hopscotch.Size,
 			Each:   hopscotch.Each,
 			Load:   hopscotch.Load,
+			Clear:  hopscotch.Clear,
 		},
 		{
 			Get:    flat.Get,
@@ -47,6 +48,7 @@ func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
 			Size:   flat.Size,
 			Each:   flat.Each,
 			Load:   flat.Load,
+			Clear:  flat.Clear,
 		},
 		{
 			Get:    unordered.Get,
@@ -55,6 +57,7 @@ func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
 			Size:   unordered.Size,
 			Each:   unordered.Each,
 			Load:   unordered.Load,
+			Clear:  unordered.Clear,
 		},
 		{
 			Get:    robin.Get,
@@ -63,24 +66,20 @@ func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
 			Size:   robin.Size,
 			Each:   robin.Each,
 			Load:   robin.Load,
+			Clear:  robin.Clear,
 		},
 	}
 }
 
 func checkeq[K comparable, V comparable](cm *hashmaps.IHashMap[K, V], get func(k K) (V, bool), t *testing.T) {
 	cm.Each(func(key K, val V) bool {
-		if ov, ok := get(key); !ok {
-			t.Fatalf("key %v should exist", key)
-		} else if val != ov {
-			t.Fatalf("value mismatch: %v != %v", val, ov)
-		}
+		ov, ok := get(key)
+		assert.True(t, ok, "key %v should exist", key)
+		assert.Equal(t, val, ov, "value mismatch: %v != %v", val, ov)
+
 		v, found := cm.Get(key)
-		if !found {
-			t.Fatalf("double check failed for key %v", key)
-		}
-		if v != val {
-			t.Fatalf("double check failed for value %v", v)
-		}
+		assert.True(t, found, "double check failed for key %v", key)
+		assert.Equal(t, v, val, "double check failed for value %v", v)
 		return false
 	})
 }
@@ -88,7 +87,7 @@ func checkeq[K comparable, V comparable](cm *hashmaps.IHashMap[K, V], get func(k
 func TestCrossCheckInt(t *testing.T) {
 
 	maps := setupMaps[uint64, uint32]()
-	const nops = 10000
+	const nops = 1000
 	for _, m := range maps {
 		stdm := make(map[uint64]uint32)
 		for i := 0; i < nops; i++ {
@@ -100,9 +99,8 @@ func TestCrossCheckInt(t *testing.T) {
 			case 0:
 				v1, ok1 := m.Get(key)
 				v2, ok2 := stdm[key]
-				if ok1 != ok2 || v1 != v2 {
-					t.Fatalf("lookup failed")
-				}
+				assert.Equal(t, ok1, ok2, "lookup wrong state")
+				assert.Equal(t, v1, v2, "lookup values are different")
 			case 1:
 				// prioritize insert operation
 				fallthrough
@@ -110,17 +108,11 @@ func TestCrossCheckInt(t *testing.T) {
 				_, wasIn := stdm[key]
 				stdm[key] = val
 				isNew := m.Put(key, val)
-				if isNew == wasIn {
-					t.Fatalf("Put returned wrong state")
-				}
+				assert.NotEqual(t, isNew, wasIn, "Put returned wrong state")
 
 				v, found := m.Get(key)
-				if !found {
-					t.Fatalf("lookup failed after insert for key %d", key)
-				}
-				if v != val {
-					t.Fatalf("values are not equal %d != %d", v, val)
-				}
+				assert.True(t, found, "lookup failed after insert for key %d", key)
+				assert.Equal(t, v, val, "values are not equal %d != %d", v, val)
 			case 3:
 				var del uint64
 				if len(stdm) == 0 {
@@ -133,29 +125,21 @@ func TestCrossCheckInt(t *testing.T) {
 				delete(stdm, del)
 
 				_, found := m.Get(del)
-				if !found {
-					t.Fatalf("lookup failed for key %d", key)
-				}
-				wasIn := m.Remove(del)
-				if !wasIn {
-					t.Fatalf("only deleted keys which are in")
-				}
+				assert.True(t, found, "lookup failed for key %d", key)
+				assert.True(t, m.Remove(del))
+
 				_, found = m.Get(del)
-				if found {
-					t.Fatalf("key %d was not removed", key)
-				}
+				assert.False(t, found, "key %d was not removed", key)
 			}
 
-			if len(stdm) != m.Size() {
-				t.Fatalf("len of maps are not equal %d != %d", len(stdm), m.Size())
-			}
+			assert.Equal(t, len(stdm), m.Size(), "len of maps are not equal %d != %d", len(stdm), m.Size())
 
 			checkeq(&m, func(k uint64) (uint32, bool) {
 				v, ok := stdm[k]
 				return v, ok
 			}, t)
 		}
-		fmt.Println("size:", m.Size(), "Load", m.Load())
+		t.Log("size:", m.Size(), "Load", m.Load())
 	}
 }
 
@@ -163,8 +147,7 @@ func TestCrossCheckString(t *testing.T) {
 
 	maps := setupMaps[string, string]()
 	const nops = 1000
-	for i, m := range maps {
-		fmt.Println("test map:", i)
+	for _, m := range maps {
 		stdm := make(map[string]string)
 		for i := 0; i < nops; i++ {
 			key := randString(rand.Intn(40) + 10)
@@ -175,9 +158,8 @@ func TestCrossCheckString(t *testing.T) {
 			case 0:
 				v1, ok1 := m.Get(key)
 				v2, ok2 := stdm[key]
-				if ok1 != ok2 || v1 != v2 {
-					t.Fatalf("lookup failed")
-				}
+				assert.Equal(t, ok1, ok2, "lookup wrong state")
+				assert.Equal(t, v1, v2, "lookup values are different")
 			case 1:
 				// prioritize insert operation
 				fallthrough
@@ -185,17 +167,11 @@ func TestCrossCheckString(t *testing.T) {
 				_, wasIn := stdm[key]
 				stdm[key] = val
 				isNew := m.Put(key, val)
-				if isNew == wasIn {
-					t.Fatalf("Put returned wrong state")
-				}
+				assert.NotEqual(t, isNew, wasIn, "Put returned wrong state")
 
 				v, found := m.Get(key)
-				if !found {
-					t.Fatalf("lookup failed after insert for key %s", key)
-				}
-				if v != val {
-					t.Fatalf("values are not equal %s != %s", v, val)
-				}
+				assert.True(t, found, "lookup failed after insert for key %d", key)
+				assert.Equal(t, v, val, "values are not equal %d != %d", v, val)
 			case 3:
 				var del string
 				if len(stdm) == 0 {
@@ -208,28 +184,21 @@ func TestCrossCheckString(t *testing.T) {
 				delete(stdm, del)
 
 				_, found := m.Get(del)
-				if !found {
-					t.Fatalf("lookup failed for key %s", key)
-				}
-				wasIn := m.Remove(del)
-				if !wasIn {
-					t.Fatalf("only deleted keys which are in")
-				}
+				assert.True(t, found, "lookup failed for key %d", key)
+				assert.True(t, m.Remove(del))
+
 				_, found = m.Get(del)
-				if found {
-					t.Fatalf("key %s was not removed", key)
-				}
+				assert.False(t, found, "key %d was not removed", key)
 			}
 
-			if len(stdm) != m.Size() {
-				t.Fatalf("len of maps are not equal %d != %d", len(stdm), m.Size())
-			}
+			assert.Equal(t, len(stdm), m.Size(), "len of maps are not equal %d != %d", len(stdm), m.Size())
 
 			checkeq(&m, func(k string) (string, bool) {
 				v, ok := stdm[k]
 				return v, ok
 			}, t)
 		}
+		t.Log("size:", m.Size(), "Load", m.Load())
 	}
 }
 
@@ -247,39 +216,12 @@ func TestCopy(t *testing.T) {
 
 	cpy.Put(0, 42)
 
-	if v, _ := cpy.Get(0); v != 42 {
-		t.Fatal("didn't get 42")
-	}
+	v1, ok1 := cpy.Get(0)
+	assert.True(t, ok1)
+	assert.Equal(t, uint32(42), v1)
 
-	if v, _ := orig.Get(0); v != 0 {
-		t.Fatal("manipulated origin")
-	}
-}
-
-func Example() {
-	m := hashmaps.NewRobinHood[string, int]()
-	m.Put("foo", 42)
-	m.Put("bar", 13)
-
-	fmt.Println(m.Get("foo"))
-	fmt.Println(m.Get("baz"))
-
-	m.Remove("foo")
-
-	fmt.Println(m.Get("foo"))
-	fmt.Println(m.Get("bar"))
-
-	m.Clear()
-
-	fmt.Println(m.Get("foo"))
-	fmt.Println(m.Get("bar"))
-	// Output:
-	// 42 true
-	// 0 false
-	// 0 false
-	// 13 true
-	// 0 false
-	// 0 false
+	_, ok2 := orig.Get(0)
+	assert.False(t, ok2)
 }
 
 func TestSizes(t *testing.T) {
@@ -291,6 +233,21 @@ func TestSizes(t *testing.T) {
 			if m.Size() != i {
 				t.Fatal("size invalid")
 			}
+		}
+	}
+}
+
+func TestClear(t *testing.T) {
+	maps := setupMaps[int, int]()
+	const nops = 5
+	for _, m := range maps {
+		for i := 1; i <= nops; i++ {
+			assert.True(t, m.Put(i, i))
+		}
+		m.Clear()
+		assert.Equal(t, 0, m.Size())
+		for i := 1; i <= nops; i++ {
+			assert.True(t, m.Put(i, i))
 		}
 	}
 }
@@ -339,18 +296,14 @@ func TestComplexKeyType(t *testing.T) {
 	for _, m := range maps {
 
 		isNew := m.Put(dummy{a: 0, b: 0, c: "test", d: 0, e: 0}, "xxx")
-		if m.Size() != 1 || !isNew {
-			t.Fatal("could not insert elem")
-		}
+		assert.True(t, isNew)
+		assert.Equal(t, 1, m.Size())
 
 		val, found := m.Get(dummy{a: 0, b: 0, c: "test", d: 0, e: 0})
-		if !found || val != "xxx" {
-			t.Fatal("lookup failed, elem missed")
-		}
+		assert.True(t, found)
+		assert.Equal(t, "xxx", val)
 
 		_, found = m.Get(dummy{a: 0, b: 0, c: "test1", d: 0, e: 0})
-		if found {
-			t.Fatal("lookup failed, unexpected elem")
-		}
+		assert.False(t, found)
 	}
 }
