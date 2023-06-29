@@ -20,8 +20,12 @@ type Flat[K comparable, V any] struct {
 // go:inline
 func newfBucketArray[K comparable, V any](capacity uintptr, empty K) []fBucket[K, V] {
 	buckets := make([]fBucket[K, V], capacity)
-	for i := range buckets {
-		buckets[i].key = empty
+	var zero K
+	if zero != empty {
+		// need to "zero" the keys
+		for i := range buckets {
+			buckets[i].key = empty
+		}
 	}
 	return buckets
 }
@@ -47,6 +51,7 @@ func NewFlatWithHasher[K comparable, V any](empty K, hasher HashFn[K]) *Flat[K, 
 		buckets:   newfBucketArray[K, V](4, empty),
 		capMinus1: 3,
 		hasher:    hasher,
+		empty:     empty,
 	}
 }
 
@@ -202,7 +207,9 @@ func (m *Flat[K, V]) Load() float32 {
 }
 
 func (m *Flat[K, V]) Copy() *Flat[K, V] {
+	capacity := uintptr(cap(m.buckets))
 	newM := &Flat[K, V]{
+		buckets:   make([]fBucket[K, V], capacity),
 		capMinus1: m.capMinus1,
 		length:    m.length,
 		hasher:    m.hasher,

@@ -185,7 +185,7 @@ func (m *Hopscotch[K, V]) moveCloser(emptyIdx *uintptr) bool {
 
 // emplace adds the key-value pair to the map. It does not check
 // the occurrence, so it expects that the give key is not already
-// inserted. Futhermore a resize or rehash can happen to achieve
+// in. Furthermore a resize or rehash can happen to achieve
 // the neighborhood invariant.
 func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 	// linear probing for the next empty bucket
@@ -292,10 +292,11 @@ func (m *Hopscotch[K, V]) Size() int {
 // Copy returns a copy of this map.
 func (m *Hopscotch[K, V]) Copy() *Hopscotch[K, V] {
 	newM := &Hopscotch[K, V]{
-		buckets:   make([]hBucket[K, V], len(m.buckets)),
-		capMinus1: m.capMinus1,
-		length:    m.length,
-		hasher:    m.hasher,
+		buckets:          make([]hBucket[K, V], len(m.buckets)),
+		capMinus1:        m.capMinus1,
+		length:           m.length,
+		hasher:           m.hasher,
+		neighborhoodSize: m.neighborhoodSize,
 	}
 	copy(newM.buckets, m.buckets)
 	return newM

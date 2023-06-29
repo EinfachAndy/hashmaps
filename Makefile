@@ -20,6 +20,10 @@ static-anal: ## executes basic static code-analysis tools
 	go vet ./...
 	go vet -vettool=$(shell which shadow) ./...
 
+coverage:
+	go test -v -coverprofile coverage.out
+	go tool cover -html coverage.out -o coverage.html
+
 lint: ## runs a golang source code linter
 	golint -set_exit_status ./...
 
