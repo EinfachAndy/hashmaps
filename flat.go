@@ -80,9 +80,9 @@ func (m *Flat[K, V]) resize(n uintptr) {
 		buckets:   newfBucketArray[K, V](n, m.empty),
 	}
 
-	for _, cur := range m.buckets {
-		if cur.key != m.empty {
-			newm.emplace(cur.key, cur.value)
+	for i := range m.buckets {
+		if m.buckets[i].key != m.empty {
+			newm.emplace(m.buckets[i].key, m.buckets[i].value)
 		}
 	}
 	m.capMinus1 = newm.capMinus1
@@ -185,8 +185,8 @@ func (m *Flat[K, V]) Reserve(n uintptr) {
 
 // Clear removes all key-value pairs from the map.
 func (m *Flat[K, V]) Clear() {
-	for _, current := range m.buckets {
-		current.key = m.empty
+	for i := range m.buckets {
+		m.buckets[i].key = m.empty
 	}
 	m.length = 0
 }
@@ -214,9 +214,9 @@ func (m *Flat[K, V]) Copy() *Flat[K, V] {
 
 // Each calls 'fn' on every key-value pair in the hashmap in no particular order.
 func (m *Flat[K, V]) Each(fn func(key K, val V) bool) {
-	for _, current := range m.buckets {
-		if current.key != m.empty {
-			if stop := fn(current.key, current.value); stop {
+	for i := range m.buckets {
+		if m.buckets[i].key != m.empty {
+			if stop := fn(m.buckets[i].key, m.buckets[i].value); stop {
 				// stop iteration
 				return
 			}

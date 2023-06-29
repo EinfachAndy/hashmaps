@@ -116,11 +116,11 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 		nextResize: uintptr(float32(n) * m.maxLoad),
 	}
 
-	for _, current := range m.buckets {
-		if current.psl != emptyBucket {
-			idx := newm.hasher(current.key) & newm.capMinus1
-			current.psl = 0
-			newm.emplaceNew(&current, idx)
+	for i := range m.buckets {
+		if m.buckets[i].psl != emptyBucket {
+			idx := newm.hasher(m.buckets[i].key) & newm.capMinus1
+			m.buckets[i].psl = 0
+			newm.emplaceNew(&m.buckets[i], idx)
 		}
 	}
 	m.nextResize = newm.nextResize
@@ -217,8 +217,8 @@ func (m *RobinHood[K, V]) Remove(key K) bool {
 
 // Clear removes all key-value pairs from the map.
 func (m *RobinHood[K, V]) Clear() {
-	for idx := range m.buckets {
-		m.buckets[idx].psl = emptyBucket
+	for i := range m.buckets {
+		m.buckets[i].psl = emptyBucket
 	}
 	m.length = 0
 }
@@ -262,9 +262,9 @@ func (m *RobinHood[K, V]) Copy() *RobinHood[K, V] {
 // Each calls 'fn' on every key-value pair in the hash map in no particular order.
 // If 'fn' returns true, the iteration stops.
 func (m *RobinHood[K, V]) Each(fn func(key K, val V) bool) {
-	for _, current := range m.buckets {
-		if current.psl != emptyBucket {
-			if stop := fn(current.key, current.value); stop {
+	for i := range m.buckets {
+		if m.buckets[i].psl != emptyBucket {
+			if stop := fn(m.buckets[i].key, m.buckets[i].value); stop {
 				// stop iteration
 				return
 			}

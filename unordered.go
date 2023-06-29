@@ -97,8 +97,8 @@ func (m *Unordered[K, V]) Insert(key K) (*V, bool) {
 func (m *Unordered[K, V]) rehash(n uintptr) {
 	m.capMinus1 = n - 1
 	newBuckets := make([]linkedList[K, V], n)
-	for _, l := range m.buckets {
-		for current := l.head; current != nil; {
+	for i := range m.buckets {
+		for current := m.buckets[i].head; current != nil; {
 			newElem := current
 			current = current.next
 			newElem.next = nil // unlink from old
@@ -116,8 +116,8 @@ func (m *Unordered[K, V]) rehash(n uintptr) {
 
 // Clear removes all key-value pairs from the map.
 func (m *Unordered[K, V]) Clear() {
-	for idx := range m.buckets {
-		m.buckets[idx].head = nil
+	for i := range m.buckets {
+		m.buckets[i].head = nil
 	}
 	m.length = 0
 }
@@ -190,8 +190,8 @@ func (m *Unordered[K, V]) Remove(key K) bool {
 // Each calls 'fn' on every key-value pair in the hash map in no particular order.
 // If 'fn' returns true, the iteration stops.
 func (m *Unordered[K, V]) Each(fn func(key K, val V) bool) {
-	for _, l := range m.buckets {
-		for current := l.head; current != nil; current = current.next {
+	for i := range m.buckets {
+		for current := m.buckets[i].head; current != nil; current = current.next {
 			if stop := fn(current.key, current.value); stop {
 				// stop iteration
 				return

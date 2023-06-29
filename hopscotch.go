@@ -92,10 +92,10 @@ func (m *Hopscotch[K, V]) rehash(n uintptr) {
 		capMinus1:        n - 1,
 		neighborhoodSize: m.neighborhoodSize,
 	}
-	for _, b := range m.buckets {
-		if !b.isEmpty() {
-			homeIdx := nmap.hasher(b.key) & nmap.capMinus1
-			nmap.emplace(b.key, b.val, homeIdx)
+	for i := range m.buckets {
+		if !m.buckets[i].isEmpty() {
+			homeIdx := nmap.hasher(m.buckets[i].key) & nmap.capMinus1
+			nmap.emplace(m.buckets[i].key, m.buckets[i].val, homeIdx)
 		}
 	}
 	m.buckets = nmap.buckets
@@ -273,8 +273,8 @@ func (m *Hopscotch[K, V]) Remove(key K) bool {
 
 // Clear removes all key-value pairs from the map.
 func (m *Hopscotch[K, V]) Clear() {
-	for idx := range m.buckets {
-		m.buckets[idx].hopInfo = 0
+	for i := range m.buckets {
+		m.buckets[i].hopInfo = 0
 	}
 	m.length = 0
 }
@@ -304,9 +304,9 @@ func (m *Hopscotch[K, V]) Copy() *Hopscotch[K, V] {
 // Each calls 'fn' on every key-value pair in the hash map in no particular order.
 // If 'fn' returns true, the iteration stops.
 func (m *Hopscotch[K, V]) Each(fn func(key K, val V) bool) {
-	for _, current := range m.buckets {
-		if !current.isEmpty() {
-			if stop := fn(current.key, current.val); stop {
+	for i := range m.buckets {
+		if !m.buckets[i].isEmpty() {
+			if stop := fn(m.buckets[i].key, m.buckets[i].val); stop {
 				// stop iteration
 				return
 			}
