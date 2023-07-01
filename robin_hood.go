@@ -1,18 +1,11 @@
 package hashmaps
 
 import (
-	"errors"
 	"fmt"
 )
 
 const (
-	emptyBucket    = -1
-	defaultMaxLoad = 0.8
-)
-
-var (
-	// ErrOutOfRange signals an out of range request
-	ErrOutOfRange = errors.New("out of range")
+	emptyBucket = -1
 )
 
 type bucket[K comparable, V any] struct {
@@ -52,9 +45,11 @@ type RobinHood[K comparable, V any] struct {
 // go:inline
 func newBucketArray[K comparable, V any](capacity uintptr) []bucket[K, V] {
 	buckets := make([]bucket[K, V], capacity)
+
 	for i := range buckets {
 		buckets[i].psl = emptyBucket
 	}
+
 	return buckets
 }
 
@@ -66,12 +61,13 @@ func NewRobinHood[K comparable, V any]() *RobinHood[K, V] {
 // NewRobinHoodWithHasher same as `NewRobinHood` but with a given hash function.
 func NewRobinHoodWithHasher[K comparable, V any](hasher HashFn[K]) *RobinHood[K, V] {
 	capacity := uintptr(4)
+
 	return &RobinHood[K, V]{
 		buckets:    newBucketArray[K, V](capacity),
 		capMinus1:  capacity - 1,
 		hasher:     hasher,
 		nextResize: 2,
-		maxLoad:    defaultMaxLoad,
+		maxLoad:    DefaultMaxLoad,
 	}
 }
 
@@ -84,7 +80,11 @@ func NewRobinHoodWithHasher[K comparable, V any](hasher HashFn[K]) *RobinHood[K,
 //   - Here it is used the simplest technic, which is more cache friendly and
 //     does not track other metic values.
 func (m *RobinHood[K, V]) Get(key K) (V, bool) {
-	idx := m.hasher(key) & m.capMinus1
+	var (
+		idx = m.hasher(key) & m.capMinus1
+		v   V
+	)
+
 	for psl := int8(0); psl <= m.buckets[idx].psl; psl++ {
 		if m.buckets[idx].key == key {
 			return m.buckets[idx].value, true
@@ -92,15 +92,18 @@ func (m *RobinHood[K, V]) Get(key K) (V, bool) {
 		// next index
 		idx = (idx + 1) & m.capMinus1
 	}
-	var v V
+
 	return v, false
 }
 
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
 // If n is lower than that, the function may have no effect.
 func (m *RobinHood[K, V]) Reserve(n uintptr) {
-	needed := uintptr(float32(n) / m.maxLoad)
-	newCap := uintptr(NextPowerOf2(uint64(needed)))
+	var (
+		needed = uintptr(float32(n) / m.maxLoad)
+		newCap = uintptr(NextPowerOf2(uint64(needed)))
+	)
+
 	if uintptr(cap(m.buckets)) < newCap {
 		m.resize(newCap)
 	}
@@ -123,6 +126,7 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 			newm.emplaceNew(&m.buckets[i], idx)
 		}
 	}
+
 	m.nextResize = newm.nextResize
 	m.capMinus1 = newm.capMinus1
 	m.buckets = newm.buckets
@@ -136,9 +140,12 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 		m.resize(uintptr(cap(m.buckets)) * 2)
 	}
 
+	var (
+		idx = m.hasher(key) & m.capMinus1
+		psl = int8(0)
+	)
+
 	// search for the key
-	idx := m.hasher(key) & m.capMinus1
-	psl := int8(0)
 	for ; psl <= m.buckets[idx].psl; psl++ {
 		if m.buckets[idx].key == key {
 			m.buckets[idx].value = val
@@ -147,6 +154,7 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 		// next index
 		idx = (idx + 1) & m.capMinus1
 	}
+
 	m.length++
 
 	newBucket := bucket[K, V]{key: key, value: val, psl: psl}
@@ -171,10 +179,12 @@ func (m *RobinHood[K, V]) emplaceNew(current *bucket[K, V], idx uintptr) {
 			m.buckets[idx] = *current
 			return
 		}
+
 		if current.psl > m.buckets[idx].psl {
 			// swap values, apply the Robin Hood creed
 			*current, m.buckets[idx] = m.buckets[idx], *current
 		}
+
 		// next index
 		idx = (idx + 1) & m.capMinus1
 	}
@@ -183,9 +193,12 @@ func (m *RobinHood[K, V]) emplaceNew(current *bucket[K, V], idx uintptr) {
 // Remove removes the specified key-value pair from the map.
 // Returns true, if the element was in the hash map.
 func (m *RobinHood[K, V]) Remove(key K) bool {
+	var (
+		idx     = m.hasher(key) & m.capMinus1
+		current *bucket[K, V]
+	)
+
 	// search for the key
-	idx := m.hasher(key) & m.capMinus1
-	var current *bucket[K, V] = nil
 	for psl := int8(0); psl <= m.buckets[idx].psl; psl++ {
 		if m.buckets[idx].key == key {
 			current = &m.buckets[idx]
@@ -194,17 +207,19 @@ func (m *RobinHood[K, V]) Remove(key K) bool {
 		// next index
 		idx = (idx + 1) & m.capMinus1
 	}
+
 	if current == nil {
 		return false
 	}
 
 	// remove the key
 	m.length--
-	current.psl = emptyBucket // mark as empty, because we want to remove it
+	// mark as empty, because we want to remove it
+	current.psl = emptyBucket
 
-	// now, back shift all buckets until we found a optimum or empty one
 	idx = (idx + 1) & m.capMinus1
 	next := &m.buckets[idx]
+	// now, back shift all buckets until we found a optimum or empty one
 	for next.psl > 0 {
 		next.psl--
 		*current, *next = *next, *current // swap values
@@ -212,6 +227,7 @@ func (m *RobinHood[K, V]) Remove(key K) bool {
 		idx = (idx + 1) & m.capMinus1
 		next = &m.buckets[idx]
 	}
+
 	return true
 }
 
@@ -220,12 +236,13 @@ func (m *RobinHood[K, V]) Clear() {
 	for i := range m.buckets {
 		m.buckets[i].psl = emptyBucket
 	}
+
 	m.length = 0
 }
 
 // Load return the current load of the hash map.
 func (m *RobinHood[K, V]) Load() float32 {
-	return float32(m.length) / float32(len(m.buckets))
+	return float32(m.length) / float32(cap(m.buckets))
 }
 
 // MaxLoad forces resizing if the ratio is reached.
@@ -235,8 +252,10 @@ func (m *RobinHood[K, V]) MaxLoad(lf float32) error {
 	if lf <= 0.0 || lf >= 1.0 {
 		return fmt.Errorf("%f: %w", lf, ErrOutOfRange)
 	}
+
 	m.maxLoad = lf
 	m.nextResize = uintptr(float32(cap(m.buckets)) * lf)
+
 	return nil
 }
 
@@ -248,14 +267,16 @@ func (m *RobinHood[K, V]) Size() int {
 // Copy returns a copy of this map.
 func (m *RobinHood[K, V]) Copy() *RobinHood[K, V] {
 	newM := &RobinHood[K, V]{
-		buckets:    make([]bucket[K, V], len(m.buckets)),
+		buckets:    make([]bucket[K, V], cap(m.buckets)),
 		capMinus1:  m.capMinus1,
 		length:     m.length,
 		hasher:     m.hasher,
 		maxLoad:    m.maxLoad,
 		nextResize: m.nextResize,
 	}
+
 	copy(newM.buckets, m.buckets)
+
 	return newM
 }
 

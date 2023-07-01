@@ -19,14 +19,18 @@ type Flat[K comparable, V any] struct {
 
 // go:inline
 func newfBucketArray[K comparable, V any](capacity uintptr, empty K) []fBucket[K, V] {
-	buckets := make([]fBucket[K, V], capacity)
-	var zero K
+	var (
+		buckets = make([]fBucket[K, V], capacity)
+		zero    K
+	)
+
 	if zero != empty {
 		// need to "zero" the keys
 		for i := range buckets {
 			buckets[i].key = empty
 		}
 	}
+
 	return buckets
 }
 
@@ -60,8 +64,12 @@ func (m *Flat[K, V]) Get(key K) (V, bool) {
 	if key == m.empty {
 		panic(fmt.Sprintf("key %v is same as empty %v", key, m.empty))
 	}
-	hash := m.hasher(key)
-	idx := hash & m.capMinus1
+
+	var (
+		hash = m.hasher(key)
+		idx  = hash & m.capMinus1
+		v    V
+	)
 
 	for m.buckets[idx].key != m.empty {
 		if m.buckets[idx].key == key {
@@ -72,7 +80,6 @@ func (m *Flat[K, V]) Get(key K) (V, bool) {
 		idx = (idx + 1) & m.capMinus1
 	}
 
-	var v V
 	return v, false
 }
 
@@ -90,14 +97,18 @@ func (m *Flat[K, V]) resize(n uintptr) {
 			newm.emplace(m.buckets[i].key, m.buckets[i].value)
 		}
 	}
+
 	m.capMinus1 = newm.capMinus1
 	m.buckets = newm.buckets
 }
 
 // emplace does not check if the key is already in.
 func (m *Flat[K, V]) emplace(key K, val V) {
-	hash := m.hasher(key)
-	idx := hash & m.capMinus1
+	var (
+		hash = m.hasher(key)
+		idx  = hash & m.capMinus1
+	)
+
 	for {
 		if m.buckets[idx].key == m.empty {
 			break
@@ -123,8 +134,10 @@ func (m *Flat[K, V]) Put(key K, val V) bool {
 		m.resize(uintptr(cap(m.buckets)) * 2)
 	}
 
-	hash := m.hasher(key)
-	idx := hash & m.capMinus1
+	var (
+		hash = m.hasher(key)
+		idx  = hash & m.capMinus1
+	)
 
 	for m.buckets[idx].key != m.empty {
 		if m.buckets[idx].key == key {
@@ -138,6 +151,7 @@ func (m *Flat[K, V]) Put(key K, val V) bool {
 	m.buckets[idx].key = key
 	m.buckets[idx].value = val
 	m.length++
+
 	return true
 }
 
@@ -147,8 +161,10 @@ func (m *Flat[K, V]) Remove(key K) bool {
 		panic(fmt.Sprintf("key %v is same as empty %v", key, m.empty))
 	}
 
-	hash := m.hasher(key)
-	idx := hash & m.capMinus1
+	var (
+		hash = m.hasher(key)
+		idx  = hash & m.capMinus1
+	)
 
 	for m.buckets[idx].key != m.empty && !(m.buckets[idx].key == key) {
 		idx = (idx + 1) & m.capMinus1
@@ -166,16 +182,13 @@ func (m *Flat[K, V]) Remove(key K) bool {
 		if m.buckets[idx].key == m.empty {
 			break
 		}
+
 		k := m.buckets[idx].key
 		v := m.buckets[idx].value
 		m.buckets[idx].key = m.empty
 		m.emplace(k, v)
 	}
 
-	// shrink if it is 12.5% full or less
-	// if m.length > 2 && m.length <= uintptr(cap(m.buckets))/8 {
-	// 	m.resize(uintptr(cap(m.buckets)) / 2)
-	// }
 	return true
 }
 
@@ -193,6 +206,7 @@ func (m *Flat[K, V]) Clear() {
 	for i := range m.buckets {
 		m.buckets[i].key = m.empty
 	}
+
 	m.length = 0
 }
 
@@ -203,19 +217,20 @@ func (m *Flat[K, V]) Size() int {
 
 // Load return the current load of the hash map.
 func (m *Flat[K, V]) Load() float32 {
-	return float32(m.length) / float32(len(m.buckets))
+	return float32(m.length) / float32(cap(m.buckets))
 }
 
 func (m *Flat[K, V]) Copy() *Flat[K, V] {
-	capacity := uintptr(cap(m.buckets))
 	newM := &Flat[K, V]{
-		buckets:   make([]fBucket[K, V], capacity),
+		buckets:   make([]fBucket[K, V], uintptr(cap(m.buckets))),
 		capMinus1: m.capMinus1,
 		length:    m.length,
 		hasher:    m.hasher,
 		empty:     m.empty,
 	}
+
 	copy(newM.buckets, m.buckets)
+
 	return newM
 }
 

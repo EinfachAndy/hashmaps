@@ -1,5 +1,7 @@
 package hashmaps
 
+import "fmt"
+
 const (
 	reservedBits        = uintptr(1)
 	maxNeighborhoodSize = 64 - reservedBits
@@ -21,9 +23,9 @@ func flip(a uint64) uint64 {
 func (b *hBucket[K, V]) set(i uintptr, v bool) {
 	mask := uint64(1) << (i + reservedBits)
 	if v {
-		b.hopInfo = b.hopInfo | mask
+		b.hopInfo |= mask
 	} else {
-		b.hopInfo = b.hopInfo & flip(mask)
+		b.hopInfo &= flip(mask)
 	}
 }
 
@@ -39,12 +41,12 @@ func (b *hBucket[K, V]) isEmpty() bool {
 
 // go:inline
 func (b *hBucket[K, V]) release() {
-	b.hopInfo = b.hopInfo & flip(1)
+	b.hopInfo &= flip(1)
 }
 
 // go:inline
 func (b *hBucket[K, V]) occupy() {
-	b.hopInfo = b.hopInfo | 1
+	b.hopInfo |= 1
 }
 
 // Hopscotch is a hashmap implementation which uses open addressing,
@@ -65,22 +67,29 @@ type Hopscotch[K comparable, V any] struct {
 	// because the size of the underlying array is a power of two value
 	capMinus1        uintptr
 	neighborhoodSize uint8
+	maxLoad          float32
+	nextResize       uintptr
 }
 
-// NewHopscotch creates a ready to use `RobinHood` hash map with default settings.
+// NewHopscotch creates a ready to use `Hopscotch` hash map with default settings.
 func NewHopscotch[K comparable, V any]() *Hopscotch[K, V] {
 	return NewHopscotchWithHasher[K, V](GetHasher[K]())
 }
 
 // NewHopscotchWithHasher same as `NewHopscotch` but with a given hash function.
 func NewHopscotchWithHasher[K comparable, V any](hasher HashFn[K]) *Hopscotch[K, V] {
-	const DefaultNeighborhoodSize = 4
-	const capacity = DefaultNeighborhoodSize
+	const (
+		DefaultNeighborhoodSize = 4
+		capacity                = DefaultNeighborhoodSize
+	)
+
 	return &Hopscotch[K, V]{
 		buckets:          make([]hBucket[K, V], capacity*2),
 		capMinus1:        capacity - 1,
 		hasher:           hasher,
 		neighborhoodSize: DefaultNeighborhoodSize,
+		maxLoad:          DefaultMaxLoad,
+		nextResize:       2,
 	}
 }
 
@@ -91,15 +100,20 @@ func (m *Hopscotch[K, V]) rehash(n uintptr) {
 		length:           m.length,
 		capMinus1:        n - 1,
 		neighborhoodSize: m.neighborhoodSize,
+		maxLoad:          m.maxLoad,
+		nextResize:       uintptr(float32(n) * m.maxLoad),
 	}
+
 	for i := range m.buckets {
 		if !m.buckets[i].isEmpty() {
 			homeIdx := nmap.hasher(m.buckets[i].key) & nmap.capMinus1
 			nmap.emplace(m.buckets[i].key, m.buckets[i].val, homeIdx)
 		}
 	}
+
 	m.buckets = nmap.buckets
 	m.capMinus1 = nmap.capMinus1
+	m.nextResize = nmap.nextResize
 }
 
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
@@ -125,7 +139,8 @@ func (m *Hopscotch[K, V]) search(homeIdx uintptr, key K) (uintptr, bool) {
 		}
 
 		homeIdx++
-		neighborhood = neighborhood >> 1
+
+		neighborhood >>= 1
 	}
 
 	return 0, false
@@ -133,14 +148,17 @@ func (m *Hopscotch[K, V]) search(homeIdx uintptr, key K) (uintptr, bool) {
 
 // Get returns the value stored for this key, or false if there is no such value.
 func (m *Hopscotch[K, V]) Get(key K) (V, bool) {
-	homeIdx := m.hasher(key) & m.capMinus1
-	idx, found := m.search(homeIdx, key)
+	var (
+		homeIdx    = m.hasher(key) & m.capMinus1
+		idx, found = m.search(homeIdx, key)
+		v          V
+	)
+
 	if found {
 		// already inserted, update
 		return m.buckets[idx].val, true
 	}
-	// not found
-	var v V
+
 	return v, false
 }
 
@@ -154,7 +172,6 @@ func (m *Hopscotch[K, V]) moveCloser(emptyIdx *uintptr) bool {
 	start := *emptyIdx - (uintptr(m.neighborhoodSize) - 1)
 
 	for homeIdx := start; homeIdx < *emptyIdx; homeIdx++ {
-
 		neighborhood := m.buckets[homeIdx].getNeighborhood()
 		for cIdx := homeIdx; neighborhood != 0 && cIdx < *emptyIdx; cIdx++ {
 			if (neighborhood & 1) == 1 {
@@ -174,12 +191,14 @@ func (m *Hopscotch[K, V]) moveCloser(emptyIdx *uintptr) bool {
 
 				// announce the new empty index
 				*emptyIdx = cIdx
+
 				return true
 			}
 
-			neighborhood = neighborhood >> 1
+			neighborhood >>= 1
 		}
 	}
+
 	return false
 }
 
@@ -188,9 +207,23 @@ func (m *Hopscotch[K, V]) moveCloser(emptyIdx *uintptr) bool {
 // in. Furthermore a resize or rehash can happen to achieve
 // the neighborhood invariant.
 func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
+	var (
+		capacity = m.capMinus1 + 1
+		emptyIdx = homeIdx
+	)
+
 	// linear probing for the next empty bucket
-	emptyIdx := homeIdx
-	for ; !m.buckets[emptyIdx].isEmpty(); emptyIdx++ {
+	for ; ; emptyIdx++ {
+		if emptyIdx == uintptr(cap(m.buckets)) {
+			// we reached the end of the bucket array, so we need to resize it
+			m.rehash(capacity * 2)
+			goto EMPLACE_AFTER_REHASH
+		}
+
+		if m.buckets[emptyIdx].isEmpty() {
+			// we found a empty bucket for the next insert, we are done
+			break
+		}
 	}
 
 	for {
@@ -202,6 +235,7 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 			m.buckets[emptyIdx].key = key
 			m.buckets[emptyIdx].val = val
 			m.buckets[homeIdx].set(distance, true)
+
 			return
 		}
 
@@ -213,7 +247,6 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 	}
 
 	// move closer does not work, we need to find another solution!
-	capacity := m.capMinus1 + 1
 	if m.neighborhoodSize < 32 {
 		m.neighborhoodSize = 2 * m.neighborhoodSize
 		m.rehash(capacity)
@@ -226,6 +259,8 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 		// Note: it is also possible to change the hash function here!
 		m.rehash(capacity * 2)
 	}
+
+EMPLACE_AFTER_REHASH:
 	newIdx := m.hasher(key) & m.capMinus1
 	m.emplace(key, val, newIdx)
 }
@@ -236,12 +271,15 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 func (m *Hopscotch[K, V]) Put(key K, val V) bool {
 	// check for resize
 	capacity := m.capMinus1 + 1
-	if m.length >= capacity/2 {
+	if m.length >= m.nextResize {
 		m.rehash(capacity * 2)
 	}
 
-	homeIdx := m.hasher(key) & m.capMinus1
-	idx, found := m.search(homeIdx, key)
+	var (
+		homeIdx    = m.hasher(key) & m.capMinus1
+		idx, found = m.search(homeIdx, key)
+	)
+
 	if found {
 		// already inserted, update
 		m.buckets[idx].val = val
@@ -251,22 +289,27 @@ func (m *Hopscotch[K, V]) Put(key K, val V) bool {
 	// search for empty bucket in neighborhoodSize
 	m.length++
 	m.emplace(key, val, homeIdx)
+
 	return true
 }
 
 // Remove removes the specified key-value pair from the map.
 // Returns true, if the element was in the hash map.
 func (m *Hopscotch[K, V]) Remove(key K) bool {
-	homeIdx := m.hasher(key) & m.capMinus1
-	idx, found := m.search(homeIdx, key)
+	var (
+		homeIdx    = m.hasher(key) & m.capMinus1
+		idx, found = m.search(homeIdx, key)
+	)
+
 	if !found {
 		return false
 	}
 
-	m.length--
 	distance := idx - homeIdx
+
 	m.buckets[homeIdx].set(distance, false)
 	m.buckets[idx].release()
+	m.length--
 
 	return true
 }
@@ -276,12 +319,27 @@ func (m *Hopscotch[K, V]) Clear() {
 	for i := range m.buckets {
 		m.buckets[i].hopInfo = 0
 	}
+
 	m.length = 0
+}
+
+// MaxLoad forces resizing if the ratio is reached.
+// Useful values are in range [0.5-0.9].
+// Returns ErrOutOfRange if `lf` is not in the open range (0.0,1.0).
+func (m *Hopscotch[K, V]) MaxLoad(lf float32) error {
+	if lf <= 0.0 || lf >= 1.0 {
+		return fmt.Errorf("%f: %w", lf, ErrOutOfRange)
+	}
+
+	m.maxLoad = lf
+	m.nextResize = uintptr(float32(cap(m.buckets)) * lf)
+
+	return nil
 }
 
 // Load return the current load of the hash map.
 func (m *Hopscotch[K, V]) Load() float32 {
-	return float32(m.length) / float32(len(m.buckets))
+	return float32(m.length) / float32(cap(m.buckets))
 }
 
 // Size returns the number of items in the map.
@@ -292,13 +350,17 @@ func (m *Hopscotch[K, V]) Size() int {
 // Copy returns a copy of this map.
 func (m *Hopscotch[K, V]) Copy() *Hopscotch[K, V] {
 	newM := &Hopscotch[K, V]{
-		buckets:          make([]hBucket[K, V], len(m.buckets)),
+		buckets:          make([]hBucket[K, V], cap(m.buckets)),
 		capMinus1:        m.capMinus1,
 		length:           m.length,
 		hasher:           m.hasher,
 		neighborhoodSize: m.neighborhoodSize,
+		maxLoad:          m.maxLoad,
+		nextResize:       m.nextResize,
 	}
+
 	copy(newM.buckets, m.buckets)
+
 	return newM
 }
 

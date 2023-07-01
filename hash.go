@@ -94,7 +94,7 @@ var hashFloat64 = func(in float64) uintptr {
 	return uintptr(key)
 }
 
-// hashQword implements MurmurHash3's 64-bit Finalizer
+// hashQword implements MurmurHash3's 64-bit Finalizer.
 var hashQword = func(key uint64) uintptr {
 	key ^= (key >> 33)
 	key *= 0xff51afd7ed558ccd
@@ -104,7 +104,8 @@ var hashQword = func(key uint64) uintptr {
 	return uintptr(key)
 }
 
-// fnv1aModified implements a simpler and faster variant of the fnv1a algorithm, that seems good enough for string hashing.
+// fnv1aModified implements a simpler and faster variant of the fnv1a algorithm,
+// that seems good enough for string hashing.
 var fnv1aModified = func(b []byte) uintptr {
 	const prime64 = uint64(1099511628211)
 	h := uint64(14695981039346656037)

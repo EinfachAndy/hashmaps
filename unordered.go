@@ -40,13 +40,17 @@ func NewUnorderedWithHasher[K comparable, V any](hasher HashFn[K]) *Unordered[K,
 
 // Get returns the value stored for this key, or false if not found.
 func (m *Unordered[K, V]) Get(key K) (V, bool) {
-	idx := m.hasher(key) & m.capMinus1
+	var (
+		idx = m.hasher(key) & m.capMinus1
+		v   V
+	)
+
 	for current := m.buckets[idx].head; current != nil; current = current.next {
 		if current.key == key {
 			return current.value, true
 		}
 	}
-	var v V
+
 	return v, false
 }
 
@@ -55,11 +59,13 @@ func (m *Unordered[K, V]) Get(key K) (V, bool) {
 // Note, use `Get` for small values.
 func (m *Unordered[K, V]) Lookup(key K) *V {
 	idx := m.hasher(key) & m.capMinus1
+
 	for current := m.buckets[idx].head; current != nil; current = current.next {
 		if current.key == key {
 			return &(current.value)
 		}
 	}
+
 	return nil
 }
 
@@ -76,6 +82,7 @@ func (m *Unordered[K, V]) Insert(key K) (*V, bool) {
 		newNode := &listNode[K, V]{key: key}
 		m.buckets[idx].head = newNode
 		m.length++
+
 		return &newNode.value, true
 	}
 
@@ -84,11 +91,14 @@ func (m *Unordered[K, V]) Insert(key K) (*V, bool) {
 		if current.key == key {
 			return &current.value, false
 		}
+
 		// reached end of list, so insert
 		if current.next == nil {
-			m.length++
 			newNode := &listNode[K, V]{key: key}
+
 			current.next = newNode
+			m.length++
+
 			return &newNode.value, true
 		}
 	}
@@ -97,6 +107,7 @@ func (m *Unordered[K, V]) Insert(key K) (*V, bool) {
 func (m *Unordered[K, V]) rehash(n uintptr) {
 	m.capMinus1 = n - 1
 	newBuckets := make([]linkedList[K, V], n)
+
 	for i := range m.buckets {
 		for current := m.buckets[i].head; current != nil; {
 			newElem := current
@@ -111,6 +122,7 @@ func (m *Unordered[K, V]) rehash(n uintptr) {
 			newElem.next = head
 		}
 	}
+
 	m.buckets = newBuckets
 }
 
@@ -119,6 +131,7 @@ func (m *Unordered[K, V]) Clear() {
 	for i := range m.buckets {
 		m.buckets[i].head = nil
 	}
+
 	m.length = 0
 }
 
@@ -129,7 +142,7 @@ func (m *Unordered[K, V]) Size() int {
 
 // Load return the current load of the hash map.
 func (m *Unordered[K, V]) Load() float32 {
-	return float32(m.length) / float32(len(m.buckets))
+	return float32(m.length) / float32(cap(m.buckets))
 }
 
 func (m *Unordered[K, V]) grow() {
@@ -153,6 +166,7 @@ func (m *Unordered[K, V]) Reserve(n uintptr) {
 func (m *Unordered[K, V]) Put(key K, val V) bool {
 	v, isNew := m.Insert(key)
 	*v = val
+
 	return isNew
 }
 
@@ -160,15 +174,16 @@ func (m *Unordered[K, V]) Put(key K, val V) bool {
 // Returns true, if the element was in the hash map.
 func (m *Unordered[K, V]) Remove(key K) bool {
 	var (
-		idx                     = m.hasher(key) & m.capMinus1
-		current                 = m.buckets[idx].head
-		prev    *listNode[K, V] = nil
+		idx     = m.hasher(key) & m.capMinus1
+		current = m.buckets[idx].head
+		prev    *listNode[K, V]
 	)
 
 	// check head
 	if current != nil && current.key == key {
 		m.buckets[idx].head = current.next
 		m.length--
+
 		return true
 	}
 
@@ -177,14 +192,16 @@ func (m *Unordered[K, V]) Remove(key K) bool {
 		prev = current
 		current = current.next
 	}
+
 	if current == nil {
 		return false // not found
 	}
+
 	// unlink
 	prev.next = current.next
 	m.length--
-	return true
 
+	return true
 }
 
 // Each calls 'fn' on every key-value pair in the hash map in no particular order.

@@ -15,10 +15,13 @@ func init() {
 
 func randString(n int) string {
 	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
 	b := make([]byte, n)
+
 	for i := range b {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
+
 	return string(b)
 }
 
@@ -29,7 +32,12 @@ func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
 		flat      = hashmaps.NewFlat[K, V]()
 		hopscotch = hashmaps.NewHopscotch[K, V]()
 	)
+
 	if err := robin.MaxLoad(0.9); err != nil {
+		panic(err.Error())
+	}
+
+	if err := hopscotch.MaxLoad(0.95); err != nil {
 		panic(err.Error())
 	}
 
@@ -77,7 +85,10 @@ func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
 	}
 }
 
-func checkeq[K comparable, V comparable](cm *hashmaps.IHashMap[K, V], get func(k K) (V, bool), t *testing.T) {
+func checkeq[K comparable, V comparable](
+	t *testing.T,
+	cm *hashmaps.IHashMap[K, V],
+	get func(k K) (V, bool)) {
 	cm.Each(func(key K, val V) bool {
 		ov, ok := get(key)
 		assert.True(t, ok, "key %v should exist", key)
@@ -91,20 +102,25 @@ func checkeq[K comparable, V comparable](cm *hashmaps.IHashMap[K, V], get func(k
 }
 
 func TestCrossCheckInt(t *testing.T) {
-
 	maps := setupMaps[uint64, uint32]()
-	const nops = 1000
+
 	for _, m := range maps {
 		stdm := make(map[uint64]uint32)
-		for i := 0; i < nops; i++ {
-			key := uint64(rand.Intn(1000)) + 1
-			val := rand.Uint32()
-			op := rand.Intn(4)
+
+		for i := 0; i < 1000; i++ {
+			var (
+				key = uint64(rand.Intn(1000)) + 1
+				val = rand.Uint32()
+				op  = rand.Intn(4)
+			)
 
 			switch op {
 			case 0:
-				v1, ok1 := m.Get(key)
-				v2, ok2 := stdm[key]
+				var (
+					v1, ok1 = m.Get(key)
+					v2, ok2 = stdm[key]
+				)
+
 				assert.Equal(t, ok1, ok2, "lookup wrong state")
 				assert.Equal(t, v1, v2, "lookup values are different")
 			case 1:
@@ -121,13 +137,16 @@ func TestCrossCheckInt(t *testing.T) {
 				assert.Equal(t, v, val, "values are not equal %d != %d", v, val)
 			case 3:
 				var del uint64
+
 				if len(stdm) == 0 {
 					break
 				}
+
 				for k := range stdm {
 					del = k
 					break
 				}
+
 				delete(stdm, del)
 
 				_, found := m.Get(del)
@@ -140,30 +159,35 @@ func TestCrossCheckInt(t *testing.T) {
 
 			assert.Equal(t, len(stdm), m.Size(), "len of maps are not equal %d != %d", len(stdm), m.Size())
 
-			checkeq(&m, func(k uint64) (uint32, bool) {
+			checkeq(t, &m, func(k uint64) (uint32, bool) {
 				v, ok := stdm[k]
 				return v, ok
-			}, t)
+			})
 		}
 		t.Log("size:", m.Size(), "Load", m.Load())
 	}
 }
 
 func TestCrossCheckString(t *testing.T) {
-
 	maps := setupMaps[string, string]()
-	const nops = 1000
+
 	for _, m := range maps {
 		stdm := make(map[string]string)
-		for i := 0; i < nops; i++ {
-			key := randString(rand.Intn(40) + 10)
-			val := key
-			op := rand.Intn(4)
+
+		for i := 0; i < 1000; i++ {
+			var (
+				key = randString(rand.Intn(40) + 10)
+				val = key
+				op  = rand.Intn(4)
+			)
 
 			switch op {
 			case 0:
-				v1, ok1 := m.Get(key)
-				v2, ok2 := stdm[key]
+				var (
+					v1, ok1 = m.Get(key)
+					v2, ok2 = stdm[key]
+				)
+
 				assert.Equal(t, ok1, ok2, "lookup wrong state")
 				assert.Equal(t, v1, v2, "lookup values are different")
 			case 1:
@@ -177,16 +201,19 @@ func TestCrossCheckString(t *testing.T) {
 
 				v, found := m.Get(key)
 				assert.True(t, found, "lookup failed after insert for key %d", key)
-				assert.Equal(t, v, val, "values are not equal %d != %d", v, val)
+				assert.Equal(t, val, v, "values are not equal %d != %d", v, val)
 			case 3:
 				var del string
+
 				if len(stdm) == 0 {
 					break
 				}
+
 				for k := range stdm {
 					del = k
 					break
 				}
+
 				delete(stdm, del)
 
 				_, found := m.Get(del)
@@ -199,10 +226,10 @@ func TestCrossCheckString(t *testing.T) {
 
 			assert.Equal(t, len(stdm), m.Size(), "len of maps are not equal %d != %d", len(stdm), m.Size())
 
-			checkeq(&m, func(k string) (string, bool) {
+			checkeq(t, &m, func(k string) (string, bool) {
 				v, ok := stdm[k]
 				return v, ok
-			}, t)
+			})
 		}
 		t.Log("size:", m.Size(), "Load", m.Load())
 	}
@@ -218,7 +245,7 @@ func TestCopyRobin(t *testing.T) {
 	cpy := orig.Copy()
 
 	c := hashmaps.IHashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
-	checkeq(&c, orig.Get, t)
+	checkeq(t, &c, orig.Get)
 
 	cpy.Put(0, 42)
 
@@ -240,7 +267,7 @@ func TestCopyFlat(t *testing.T) {
 	cpy := orig.Copy()
 
 	c := hashmaps.IHashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
-	checkeq(&c, orig.Get, t)
+	checkeq(t, &c, orig.Get)
 
 	cpy.Put(0, 42)
 
@@ -262,7 +289,7 @@ func TestCopyHopscotch(t *testing.T) {
 	cpy := orig.Copy()
 
 	c := hashmaps.IHashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
-	checkeq(&c, orig.Get, t)
+	checkeq(t, &c, orig.Get)
 
 	cpy.Put(0, 42)
 
@@ -276,10 +303,11 @@ func TestCopyHopscotch(t *testing.T) {
 
 func TestSizes(t *testing.T) {
 	maps := setupMaps[int, int]()
-	const nops = 300
+
 	for _, m := range maps {
-		for i := 1; i <= nops; i++ {
+		for i := 1; i <= 300; i++ {
 			m.Put(i, i)
+
 			if m.Size() != i {
 				t.Fatal("size invalid")
 			}
@@ -289,13 +317,16 @@ func TestSizes(t *testing.T) {
 
 func TestClear(t *testing.T) {
 	maps := setupMaps[int, int]()
-	const nops = 5
+
 	for _, m := range maps {
+		const nops = 5
 		for i := 1; i <= nops; i++ {
 			assert.True(t, m.Put(i, i))
 		}
+
 		m.Clear()
 		assert.Equal(t, 0, m.Size())
+
 		for i := 1; i <= nops; i++ {
 			assert.True(t, m.Put(i, i))
 		}
@@ -304,6 +335,7 @@ func TestClear(t *testing.T) {
 
 func TestSimpleUsage(t *testing.T) {
 	maps := setupMaps[int, int]()
+
 	for _, m := range maps {
 		m.Reserve(7)
 		// insert
@@ -333,9 +365,11 @@ func TestUnorderedLookup(t *testing.T) {
 		bigArray [30]int
 	}
 
-	m := hashmaps.NewUnordered[string, dummyValue]()
+	var (
+		m = hashmaps.NewUnordered[string, dummyValue]()
+		v = dummyValue{test: 5}
+	)
 
-	v := dummyValue{test: 5}
 	for i := 0; i < 30; i++ {
 		v.bigArray[i] = i
 	}
@@ -348,6 +382,7 @@ func TestUnorderedLookup(t *testing.T) {
 
 func TestMaxLoad(t *testing.T) {
 	m := hashmaps.NewRobinHood[int, int]()
+
 	assert.Error(t, m.MaxLoad(0.0))
 	assert.Error(t, m.MaxLoad(-1.0))
 	assert.Error(t, m.MaxLoad(1.0))
@@ -362,41 +397,43 @@ func TestComplexKeyType(t *testing.T) {
 		d uint64
 		e int
 	}
-	hasher := func(d dummy) uintptr {
-		return 0
-	}
-	robin := hashmaps.NewRobinHoodWithHasher[dummy, string](hasher)
-	unordered := hashmaps.NewUnorderedWithHasher[dummy, string](hasher)
-	flat := hashmaps.NewFlatWithHasher[dummy, string](dummy{}, hasher)
-	maps := []hashmaps.IHashMap[dummy, string]{
-		{
-			Get:    flat.Get,
-			Put:    flat.Put,
-			Remove: flat.Remove,
-			Size:   flat.Size,
-			Each:   flat.Each,
-			Load:   flat.Load,
-		},
-		{
-			Get:    robin.Get,
-			Put:    robin.Put,
-			Remove: robin.Remove,
-			Size:   robin.Size,
-			Each:   robin.Each,
-			Load:   robin.Load,
-		},
-		{
-			Get:    unordered.Get,
-			Put:    unordered.Put,
-			Remove: unordered.Remove,
-			Size:   unordered.Size,
-			Each:   unordered.Each,
-			Load:   unordered.Load,
-		},
-	}
+
+	var (
+		hasher = func(d dummy) uintptr {
+			return 0
+		}
+		robin     = hashmaps.NewRobinHoodWithHasher[dummy, string](hasher)
+		unordered = hashmaps.NewUnorderedWithHasher[dummy, string](hasher)
+		flat      = hashmaps.NewFlatWithHasher[dummy, string](dummy{}, hasher)
+		maps      = []hashmaps.IHashMap[dummy, string]{
+			{
+				Get:    flat.Get,
+				Put:    flat.Put,
+				Remove: flat.Remove,
+				Size:   flat.Size,
+				Each:   flat.Each,
+				Load:   flat.Load,
+			},
+			{
+				Get:    robin.Get,
+				Put:    robin.Put,
+				Remove: robin.Remove,
+				Size:   robin.Size,
+				Each:   robin.Each,
+				Load:   robin.Load,
+			},
+			{
+				Get:    unordered.Get,
+				Put:    unordered.Put,
+				Remove: unordered.Remove,
+				Size:   unordered.Size,
+				Each:   unordered.Each,
+				Load:   unordered.Load,
+			},
+		}
+	)
 
 	for _, m := range maps {
-
 		isNew := m.Put(dummy{a: 0, b: 0, c: "test", d: 0, e: 0}, "xxx")
 		assert.True(t, isNew)
 		assert.Equal(t, 1, m.Size())
@@ -412,18 +449,23 @@ func TestComplexKeyType(t *testing.T) {
 
 func TestIterator(t *testing.T) {
 	maps := setupMaps[int, int]()
-	const nops = 10
+
 	for _, m := range maps {
+		const nops = 10
 		for i := 1; i <= nops; i++ {
 			assert.True(t, m.Put(i, i))
 		}
 
-		count := 0
-		var iterator = func(key int, val int) bool {
-			assert.Equal(t, key, val)
-			count++
-			return false
-		}
+		var (
+			count    = 0
+			iterator = func(key int, val int) bool {
+				assert.Equal(t, key, val)
+				count++
+
+				return false
+			}
+		)
+
 		m.Each(iterator)
 		assert.Equal(t, nops, count)
 	}
@@ -431,18 +473,22 @@ func TestIterator(t *testing.T) {
 
 func TestIteratorEarlyTermination(t *testing.T) {
 	maps := setupMaps[int, int]()
-	const nops = 10
+
 	for _, m := range maps {
+		const nops = 10
 		for i := 1; i <= nops; i++ {
 			assert.True(t, m.Put(i, i))
 		}
 
-		count := 0
-		var iterator = func(key int, val int) bool {
-			assert.Equal(t, key, val)
-			count++
-			return count == 3
-		}
+		var (
+			count    = 0
+			iterator = func(key int, val int) bool {
+				assert.Equal(t, key, val)
+				count++
+				return count == 3
+			}
+		)
+
 		m.Each(iterator)
 		assert.Equal(t, 3, count)
 	}

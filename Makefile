@@ -21,6 +21,7 @@ static-anal: ## executes basic static code-analysis tools
 	go vet -vettool=$(shell which shadow) ./...
 
 coverage:
+	rm -f coverage.out coverage.html
 	go test -v -coverprofile coverage.out
 	go tool cover -html coverage.out -o coverage.html
 
