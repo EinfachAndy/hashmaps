@@ -249,10 +249,8 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 	// move closer does not work, we need to find another solution!
 	if m.neighborhoodSize < 32 {
 		m.neighborhoodSize = 2 * m.neighborhoodSize
-		m.rehash(capacity)
 	} else if m.neighborhoodSize < uint8(maxNeighborhoodSize-1) {
 		m.neighborhoodSize = uint8(maxNeighborhoodSize)
-		m.rehash(capacity)
 	} else {
 		// that is the last hope to achieve the neighborhood invariant,
 		// but this case should happen really rare.
