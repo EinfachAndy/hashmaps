@@ -119,7 +119,11 @@ func (m *Hopscotch[K, V]) rehash(n uintptr) {
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
 // If n is lower than that, the function may have no effect.
 func (m *Hopscotch[K, V]) Reserve(n uintptr) {
-	newCap := uintptr(NextPowerOf2(uint64(n) * 2))
+	var (
+		needed = uintptr(float32(n) / m.maxLoad)
+		newCap = uintptr(NextPowerOf2(uint64(needed)))
+	)
+
 	if uintptr(cap(m.buckets)) < newCap {
 		m.rehash(newCap)
 	}
