@@ -16,14 +16,6 @@ type hBucket[K comparable, V any] struct {
 
 // go:inline
 //
-// flip returns the opposite bit mask
-func flip(a uint64) uint64 {
-	a ^= 0xFFFFFFFFFFFFFFFF
-	return a
-}
-
-// go:inline
-//
 // set the state of v at the i-th position within the neighborhood
 func (b *hBucket[K, V]) set(i uintptr, v bool) {
 	mask := uint64(1) << (i + reservedBits)

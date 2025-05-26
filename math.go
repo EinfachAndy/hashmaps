@@ -14,3 +14,11 @@ func NextPowerOf2(i uint64) uint64 {
 
 	return i
 }
+
+// go:inline
+//
+// flip returns the opposite bit mask
+func flip(a uint64) uint64 {
+	a ^= 0xFFFFFFFFFFFFFFFF
+	return a
+}
