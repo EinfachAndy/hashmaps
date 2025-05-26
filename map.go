@@ -12,10 +12,8 @@ const (
 	DefaultMaxLoad = 0.7
 )
 
-var (
-	// ErrOutOfRange signals an out of range request.
-	ErrOutOfRange = errors.New("out of range")
-)
+// ErrOutOfRange signals an out of range request.
+var ErrOutOfRange = errors.New("out of range")
 
 // IHashMap collects the basic hash maps operations as function points.
 type IHashMap[K comparable, V any] struct {

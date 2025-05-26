@@ -88,7 +88,8 @@ func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
 func checkeq[K comparable, V comparable](
 	t *testing.T,
 	cm *hashmaps.IHashMap[K, V],
-	get func(k K) (V, bool)) {
+	get func(k K) (V, bool),
+) {
 	cm.Each(func(key K, val V) bool {
 		ov, ok := get(key)
 		assert.True(t, ok, "key %v should exist", key)

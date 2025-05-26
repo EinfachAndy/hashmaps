@@ -3,23 +3,28 @@ package hashmaps
 import "fmt"
 
 const (
-	reservedBits        = uintptr(1)
-	maxNeighborhoodSize = 64 - reservedBits
+	reservedBits        = uintptr(1)        // number of reserved bits within the hop info
+	occupyBit           = uint64(1)         // bit mask for the occupy bit
+	maxNeighborhoodSize = 64 - reservedBits // max size of H (neighborhood)
 )
 
 type hBucket[K comparable, V any] struct {
-	hopInfo uint64
+	hopInfo uint64 // stores the neighborhood and the state of the reserved bits
 	key     K
 	val     V
 }
 
 // go:inline
+//
+// flip returns the opposite bit mask
 func flip(a uint64) uint64 {
 	a ^= 0xFFFFFFFFFFFFFFFF
 	return a
 }
 
 // go:inline
+//
+// set the state of v at the i-th position within the neighborhood
 func (b *hBucket[K, V]) set(i uintptr, v bool) {
 	mask := uint64(1) << (i + reservedBits)
 	if v {
@@ -30,23 +35,31 @@ func (b *hBucket[K, V]) set(i uintptr, v bool) {
 }
 
 // go:inline
+//
+// getNeighborhood returns the neighborhood bit mask
 func (b *hBucket[K, V]) getNeighborhood() uint64 {
 	return b.hopInfo >> uint64(reservedBits)
 }
 
 // go:inline
+//
+// returns true if the bucket is empty
 func (b *hBucket[K, V]) isEmpty() bool {
-	return (b.hopInfo & 1) == 0
+	return (b.hopInfo & occupyBit) == 0
 }
 
 // go:inline
+//
+// release marks the bucket as empty
 func (b *hBucket[K, V]) release() {
-	b.hopInfo &= flip(1)
+	b.hopInfo &= flip(occupyBit)
 }
 
 // go:inline
+//
+// occupy marks the bucket as not empty
 func (b *hBucket[K, V]) occupy() {
-	b.hopInfo |= 1
+	b.hopInfo |= occupyBit
 }
 
 // Hopscotch is a hashmap implementation which uses open addressing,
@@ -89,7 +102,7 @@ func NewHopscotchWithHasher[K comparable, V any](hasher HashFn[K]) *Hopscotch[K,
 		hasher:           hasher,
 		neighborhoodSize: DefaultNeighborhoodSize,
 		maxLoad:          DefaultMaxLoad,
-		nextResize:       2,
+		nextResize:       capacity,
 	}
 }
 
@@ -159,7 +172,6 @@ func (m *Hopscotch[K, V]) Get(key K) (V, bool) {
 	)
 
 	if found {
-		// already inserted, update
 		return m.buckets[idx].val, true
 	}
 
