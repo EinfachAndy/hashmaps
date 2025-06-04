@@ -71,9 +71,9 @@ type Hopscotch[K comparable, V any] struct {
 	// capMinus1 is used for a bitwise AND on the hash value,
 	// because the size of the underlying array is a power of two value
 	capMinus1        uintptr
-	neighborhoodSize uint8
-	maxLoad          float32
+	neighborhoodSize uintptr
 	nextResize       uintptr
+	maxLoad          float32
 }
 
 // NewHopscotch creates a ready to use `Hopscotch` hash map with default settings.
@@ -84,7 +84,7 @@ func NewHopscotch[K comparable, V any]() *Hopscotch[K, V] {
 // NewHopscotchWithHasher same as `NewHopscotch` but with a given hash function.
 func NewHopscotchWithHasher[K comparable, V any](hasher HashFn[K]) *Hopscotch[K, V] {
 	const (
-		DefaultNeighborhoodSize = 4
+		DefaultNeighborhoodSize = 4 // must be pow of 2
 		capacity                = DefaultNeighborhoodSize
 	)
 
@@ -100,7 +100,7 @@ func NewHopscotchWithHasher[K comparable, V any](hasher HashFn[K]) *Hopscotch[K,
 
 func (m *Hopscotch[K, V]) rehash(n uintptr) {
 	nmap := Hopscotch[K, V]{
-		buckets:          make([]hBucket[K, V], n+uintptr(m.neighborhoodSize)),
+		buckets:          make([]hBucket[K, V], n+m.neighborhoodSize),
 		hasher:           m.hasher,
 		length:           m.length,
 		capMinus1:        n - 1,
@@ -177,7 +177,7 @@ func (m *Hopscotch[K, V]) Get(key K) (V, bool) {
 //
 // go:inline
 func (m *Hopscotch[K, V]) moveCloser(emptyIdx *uintptr) bool {
-	start := *emptyIdx - (uintptr(m.neighborhoodSize) - 1)
+	start := *emptyIdx - (m.neighborhoodSize - 1)
 
 	for homeIdx := start; homeIdx < *emptyIdx; homeIdx++ {
 		neighborhood := m.buckets[homeIdx].getNeighborhood()
@@ -236,7 +236,7 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 
 	for {
 		distance := emptyIdx - homeIdx
-		if distance < uintptr(m.neighborhoodSize) {
+		if distance < m.neighborhoodSize {
 			// we found an empty bucket within the neighborhood.
 			// we are finished and can emplace the key-value pair.
 			m.buckets[emptyIdx].occupy()
@@ -255,10 +255,11 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 	}
 
 	// move closer does not work, we need to find another solution!
-	if m.neighborhoodSize < 32 {
+	const lastPow2 = 32
+	if m.neighborhoodSize < lastPow2 {
 		m.neighborhoodSize = 2 * m.neighborhoodSize
-	} else if m.neighborhoodSize < uint8(maxNeighborhoodSize-1) {
-		m.neighborhoodSize = uint8(maxNeighborhoodSize)
+	} else if m.neighborhoodSize == lastPow2 {
+		m.neighborhoodSize = maxNeighborhoodSize
 	} else {
 		// that is the last hope to achieve the neighborhood invariant,
 		// but this case should happen really rare.
@@ -268,6 +269,7 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 
 EMPLACE_AFTER_REHASH:
 	newIdx := m.hasher(key) & m.capMinus1
+	// tail recursion is optimized by the compiler
 	m.emplace(key, val, newIdx)
 }
 

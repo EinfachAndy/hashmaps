@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var nLoops = 1000
+
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
@@ -108,9 +110,9 @@ func TestCrossCheckInt(t *testing.T) {
 	for _, m := range maps {
 		stdm := make(map[uint64]uint32)
 
-		for i := 0; i < 1000; i++ {
+		for i := 0; i < nLoops; i++ {
 			var (
-				key = uint64(rand.Intn(1000)) + 1
+				key = uint64(rand.Intn(nLoops/10)) + 1
 				val = rand.Uint32()
 				op  = rand.Intn(4)
 			)
@@ -175,9 +177,9 @@ func TestCrossCheckString(t *testing.T) {
 	for _, m := range maps {
 		stdm := make(map[string]string)
 
-		for i := 0; i < 1000; i++ {
+		for i := 0; i < nLoops; i++ {
 			var (
-				key = randString(rand.Intn(40) + 10)
+				key = randString(rand.Intn(nLoops/10) + 10)
 				val = key
 				op  = rand.Intn(4)
 			)
