@@ -8,6 +8,14 @@ test: build ## executes all unit tests
 	go clean -testcache
 	go test ./...
 
+asan: build ## executes all unit tests with asan flag
+	go clean -testcache
+	go test -asan ./...
+
+race: build ## executes all unit tests with race flag
+	go clean -testcache
+	go test -race ./...
+
 clean: ## deletes untracked git and go cached files
 	git clean -xfd
 	go clean -testcache
@@ -15,18 +23,13 @@ clean: ## deletes untracked git and go cached files
 fmt: ## uses gofmt to format the source code base
 	gofmt -w $(shell find -name "*.go")
 
-static-anal: ## executes basic static code-analysis tools
-	staticcheck -f=stylish ./...
-	go vet ./...
-	go vet -vettool=$(shell which shadow) ./...
-
-coverage:
+coverage: ## generates test coverage
 	rm -f coverage.out coverage.html
 	go test -v -coverprofile coverage.out
 	go tool cover -html coverage.out -o coverage.html
 
 lint: ## runs a golang source code linter
-	golint -set_exit_status ./...
+	golangci-lint run --timeout 10m -E gofmt,gofumpt
 
 help: ## display this help screen
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
