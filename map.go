@@ -10,6 +10,8 @@ const (
 	// hashmaps, which can be changed with MaxLoad(). This value is a
 	// trade-off of runtime and memory consumption.
 	DefaultMaxLoad = 0.7
+
+	DefaultSize = 4
 )
 
 // ErrOutOfRange signals an out of range request.

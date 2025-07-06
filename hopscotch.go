@@ -85,17 +85,24 @@ func NewHopscotch[K comparable, V any]() *Hopscotch[K, V] {
 func NewHopscotchWithHasher[K comparable, V any](hasher HashFn[K]) *Hopscotch[K, V] {
 	const (
 		DefaultNeighborhoodSize = 4 // must be pow of 2
-		capacity                = DefaultNeighborhoodSize
 	)
 
-	return &Hopscotch[K, V]{
-		buckets:          make([]hBucket[K, V], capacity*2),
-		capMinus1:        capacity - 1,
+	m := &Hopscotch[K, V]{
 		hasher:           hasher,
 		neighborhoodSize: DefaultNeighborhoodSize,
 		maxLoad:          DefaultMaxLoad,
-		nextResize:       capacity,
 	}
+
+	m.Reserve(DefaultSize)
+
+	return m
+}
+
+// grow doubles the size size of the table
+//
+// go:inline
+func (m *Hopscotch[K, V]) grow() {
+	m.rehash(2 * (m.capMinus1 + 1))
 }
 
 func (m *Hopscotch[K, V]) rehash(n uintptr) {
@@ -116,9 +123,11 @@ func (m *Hopscotch[K, V]) rehash(n uintptr) {
 		}
 	}
 
+	// update current map
 	m.buckets = nmap.buckets
 	m.capMinus1 = nmap.capMinus1
 	m.nextResize = nmap.nextResize
+	m.neighborhoodSize = nmap.neighborhoodSize
 }
 
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
@@ -278,9 +287,8 @@ EMPLACE_AFTER_REHASH:
 // Returns true, if the element is a new item in the hash map.
 func (m *Hopscotch[K, V]) Put(key K, val V) bool {
 	// check for resize
-	capacity := m.capMinus1 + 1
 	if m.length >= m.nextResize {
-		m.rehash(capacity * 2)
+		m.grow()
 	}
 
 	var (
@@ -294,7 +302,7 @@ func (m *Hopscotch[K, V]) Put(key K, val V) bool {
 		return false
 	}
 
-	// search for empty bucket in neighborhoodSize
+	// emplace new entry
 	m.length++
 	m.emplace(key, val, homeIdx)
 

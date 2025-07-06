@@ -24,7 +24,6 @@ fmt: ## uses gofmt to format the source code base
 	gofmt -w $(shell find -name "*.go")
 
 coverage: ## generates test coverage
-	rm -f coverage.out coverage.html
 	go test -v -coverprofile coverage.out
 	go tool cover -html coverage.out -o coverage.html
 
