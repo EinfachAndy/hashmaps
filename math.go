@@ -3,7 +3,7 @@ package hashmaps
 // NextPowerOf2 is a fast computation of 2^x
 // see: https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2
 //
-// go:inline
+//go:inline
 func NextPowerOf2(i uint64) uint64 {
 	i--
 	i |= i >> 1
@@ -17,9 +17,10 @@ func NextPowerOf2(i uint64) uint64 {
 	return i
 }
 
-// go:inline
-//
+
 // flip returns the opposite bit mask
+//
+//go:inline
 func flip(a uint64) uint64 {
 	a ^= 0xFFFFFFFFFFFFFFFF
 	return a

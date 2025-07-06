@@ -17,7 +17,7 @@ type Flat[K comparable, V any] struct {
 	length    uintptr
 }
 
-// go:inline
+//go:inline
 func newfBucketArray[K comparable, V any](capacity uintptr, empty K) []fBucket[K, V] {
 	var (
 		buckets = make([]fBucket[K, V], capacity)

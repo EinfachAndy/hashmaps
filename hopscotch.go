@@ -14,9 +14,9 @@ type hBucket[K comparable, V any] struct {
 	val     V
 }
 
-// go:inline
-//
 // set the state of v at the i-th position within the neighborhood
+//
+//go:inline
 func (b *hBucket[K, V]) set(i uintptr, v bool) {
 	mask := uint64(1) << (i + reservedBits)
 	if v {
@@ -26,30 +26,30 @@ func (b *hBucket[K, V]) set(i uintptr, v bool) {
 	}
 }
 
-// go:inline
-//
 // getNeighborhood returns the neighborhood bit mask
+//
+//go:inline
 func (b *hBucket[K, V]) getNeighborhood() uint64 {
 	return b.hopInfo >> uint64(reservedBits)
 }
 
-// go:inline
-//
 // returns true if the bucket is empty
+//
+//go:inline
 func (b *hBucket[K, V]) isEmpty() bool {
 	return (b.hopInfo & occupyBit) == 0
 }
 
-// go:inline
-//
 // release marks the bucket as empty
+//
+//go:inline
 func (b *hBucket[K, V]) release() {
 	b.hopInfo &= flip(occupyBit)
 }
 
-// go:inline
-//
 // occupy marks the bucket as not empty
+//
+//go:inline
 func (b *hBucket[K, V]) occupy() {
 	b.hopInfo |= occupyBit
 }
@@ -100,7 +100,7 @@ func NewHopscotchWithHasher[K comparable, V any](hasher HashFn[K]) *Hopscotch[K,
 
 // grow doubles the size size of the table
 //
-// go:inline
+//go:inline
 func (m *Hopscotch[K, V]) grow() {
 	m.rehash(2 * (m.capMinus1 + 1))
 }
@@ -146,7 +146,7 @@ func (m *Hopscotch[K, V]) Reserve(n uintptr) {
 // search looks within the neighborhood of the home bucket to find the desired key.
 // This function has a constant runtime.
 //
-// go:inline
+//go:inline
 func (m *Hopscotch[K, V]) search(homeIdx uintptr, key K) (uintptr, bool) {
 	neighborhood := m.buckets[homeIdx].getNeighborhood()
 	for neighborhood != 0 {
@@ -184,7 +184,7 @@ func (m *Hopscotch[K, V]) Get(key K) (V, bool) {
 // buckets are moved more far-off. The parameter `emptyIdx`
 // is a in-out variable, that is updated, if the movement was successful.
 //
-// go:inline
+//go:inline
 func (m *Hopscotch[K, V]) moveCloser(emptyIdx *uintptr) bool {
 	start := *emptyIdx - (m.neighborhoodSize - 1)
 

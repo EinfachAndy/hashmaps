@@ -162,7 +162,8 @@ func (m *Unordered[K, V]) Reserve(n uintptr) {
 // Put maps the given key to the given value. If the key already exists its
 // value will be overwritten with the new value.
 // Returns true, if the element is a new item in the hash map.
-// go:inline
+//
+//go:inline
 func (m *Unordered[K, V]) Put(key K, val V) bool {
 	v, isNew := m.Insert(key)
 	*v = val

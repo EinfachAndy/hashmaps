@@ -42,7 +42,7 @@ type RobinHood[K comparable, V any] struct {
 	maxLoad float32
 }
 
-// go:inline
+//go:inline
 func newBucketArray[K comparable, V any](capacity uintptr) []bucket[K, V] {
 	buckets := make([]bucket[K, V], capacity)
 
@@ -171,7 +171,7 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 // The result is a better distribution of the PSL values,
 // where the expected length of the longest PSL is O(log(n)).
 //
-// go:inline
+//go:inline
 func (m *RobinHood[K, V]) emplaceNew(current *bucket[K, V], idx uintptr) {
 	for ; ; current.psl++ {
 		if m.buckets[idx].psl == emptyBucket {
