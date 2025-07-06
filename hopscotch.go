@@ -219,13 +219,31 @@ func (m *Hopscotch[K, V]) moveCloser(emptyIdx *uintptr) bool {
 	return false
 }
 
+// increaseNeighborhood returns true if the Neighborhood could be increased.
+//
+//go:inline
+func (m *Hopscotch[K, V]) increaseNeighborhood() bool {
+	// move closer does not work, we need to find another solution!
+	const lastPow2 = 32
+	if m.neighborhoodSize < lastPow2 {
+		m.neighborhoodSize = 2 * m.neighborhoodSize
+		return true
+	}
+	if m.neighborhoodSize == lastPow2 {
+		m.neighborhoodSize = maxNeighborhoodSize
+		return true
+	}
+
+	return false
+}
+
 // emplace adds the key-value pair to the map. It does not check
 // the occurrence, so it expects that the give key is not already
 // in. Furthermore a resize or rehash can happen to achieve
 // the neighborhood invariant.
 func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
+START:
 	var (
-		capacity = m.capMinus1 + 1
 		emptyIdx = homeIdx
 	)
 
@@ -233,7 +251,7 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 	for ; ; emptyIdx++ {
 		if emptyIdx == uintptr(cap(m.buckets)) {
 			// we reached the end of the bucket array, so we need to resize it
-			m.rehash(capacity * 2)
+			m.grow()
 			goto EMPLACE_AFTER_REHASH
 		}
 
@@ -243,6 +261,8 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 		}
 	}
 
+	// try to emplace the entry there, if the distance is outer the size of the
+	// neighborhood try to move another bucket closer
 	for {
 		distance := emptyIdx - homeIdx
 		if distance < m.neighborhoodSize {
@@ -256,7 +276,7 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 			return
 		}
 
-		// try to move the empty bucket closer, so that it is within the
+		// try to move the another bucket closer, so that it is within the
 		// neighborhood size of the home bucket.
 		if !m.moveCloser(&emptyIdx) {
 			break
@@ -264,22 +284,16 @@ func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 	}
 
 	// move closer does not work, we need to find another solution!
-	const lastPow2 = 32
-	if m.neighborhoodSize < lastPow2 {
-		m.neighborhoodSize = 2 * m.neighborhoodSize
-	} else if m.neighborhoodSize == lastPow2 {
-		m.neighborhoodSize = maxNeighborhoodSize
-	} else {
+	if !m.increaseNeighborhood() {
 		// that is the last hope to achieve the neighborhood invariant,
 		// but this case should happen really rare.
 		// Note: it is also possible to change the hash function here!
-		m.rehash(capacity * 2)
+		m.grow()
 	}
 
 EMPLACE_AFTER_REHASH:
-	newIdx := m.hasher(key) & m.capMinus1
-	// tail recursion is optimized by the compiler
-	m.emplace(key, val, newIdx)
+	homeIdx = m.hasher(key) & m.capMinus1
+	goto START
 }
 
 // Put maps the given key to the given value. If the key already exists its
