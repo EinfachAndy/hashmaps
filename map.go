@@ -87,6 +87,7 @@ func Factory[K comparable, V any](cfg Config[K, V]) *HashMap[K, V] {
 		res.Each = m.Each
 		res.Get = m.Get
 		res.Load = m.Load
+		res.MaxLoad = m.MaxLoad
 		res.Put = m.Put
 		res.Remove = m.Remove
 		res.Reserve = m.Reserve

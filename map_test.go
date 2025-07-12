@@ -35,7 +35,8 @@ func setupMaps[K comparable, V comparable]() []hashmaps.HashMap[K, V] {
 			MaxLoad: 0.95,
 		}),
 		*hashmaps.Factory(hashmaps.Config[K, V]{
-			Type: hashmaps.Flat,
+			Type:    hashmaps.Flat,
+			MaxLoad: 0.5,
 		}),
 		*hashmaps.Factory(hashmaps.Config[K, V]{
 			Type: hashmaps.Unordered,

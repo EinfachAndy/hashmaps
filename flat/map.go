@@ -19,6 +19,9 @@ type Flat[K comparable, V any] struct {
 	hasher    shared.HashFn[K]
 	capMinus1 uintptr
 	length    uintptr
+
+	nextResize uintptr
+	maxLoad    float32
 }
 
 //go:inline
@@ -55,12 +58,14 @@ func New[K comparable, V any]() *Flat[K, V] {
 // NewWithHasher constructs a new map with the given hasher.
 // Furthermore the representation for a empty bucket can be set.
 func NewWithHasher[K comparable, V any](empty K, hasher shared.HashFn[K]) *Flat[K, V] {
-	return &Flat[K, V]{
-		buckets:   newBucketArray[K, V](shared.DefaultSize, empty),
-		capMinus1: shared.DefaultSize - 1,
-		hasher:    hasher,
-		empty:     empty,
+	m := &Flat[K, V]{
+		hasher:  hasher,
+		maxLoad: shared.DefaultMaxLoad,
+		empty:   empty,
 	}
+	m.Reserve(shared.DefaultSize)
+
+	return m
 }
 
 // Get returns the value stored for this key, or false if not found.
@@ -89,11 +94,13 @@ func (m *Flat[K, V]) Get(key K) (V, bool) {
 
 func (m *Flat[K, V]) resize(n uintptr) {
 	newm := Flat[K, V]{
-		capMinus1: n - 1,
-		length:    m.length,
-		empty:     m.empty,
-		hasher:    m.hasher,
-		buckets:   newBucketArray[K, V](n, m.empty),
+		capMinus1:  n - 1,
+		length:     m.length,
+		empty:      m.empty,
+		hasher:     m.hasher,
+		buckets:    newBucketArray[K, V](n, m.empty),
+		nextResize: uintptr(float32(n) * m.maxLoad),
+		maxLoad:    m.maxLoad,
 	}
 
 	for i := range m.buckets {
@@ -104,6 +111,7 @@ func (m *Flat[K, V]) resize(n uintptr) {
 
 	m.capMinus1 = newm.capMinus1
 	m.buckets = newm.buckets
+	m.nextResize = newm.nextResize
 }
 
 // emplace does not check if the key is already in.
@@ -134,7 +142,7 @@ func (m *Flat[K, V]) Put(key K, val V) bool {
 		panic(fmt.Sprintf("key %v is same as empty %v", key, m.empty))
 	}
 
-	if m.length >= uintptr(cap(m.buckets))/2 {
+	if m.length >= m.nextResize {
 		m.resize(uintptr(cap(m.buckets)) * 2)
 	}
 
@@ -199,7 +207,11 @@ func (m *Flat[K, V]) Remove(key K) bool {
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
 // If n is lower than that, the function may have no effect.
 func (m *Flat[K, V]) Reserve(n uintptr) {
-	newCap := uintptr(shared.NextPowerOf2(uint64(2 * n)))
+	var (
+		needed = uintptr(float32(n) / m.maxLoad)
+		newCap = uintptr(shared.NextPowerOf2(uint64(needed)))
+	)
+
 	if uintptr(cap(m.buckets)) < newCap {
 		m.resize(newCap)
 	}
@@ -224,13 +236,29 @@ func (m *Flat[K, V]) Load() float32 {
 	return float32(m.length) / float32(cap(m.buckets))
 }
 
+// MaxLoad forces resizing if the ratio is reached.
+// Useful values are in range [0.5-0.7].
+// Returns ErrOutOfRange if `lf` is not in the open range (0.0,1.0).
+func (m *Flat[K, V]) MaxLoad(lf float32) error {
+	if lf <= 0.0 || lf >= 1.0 {
+		return fmt.Errorf("%f: %w", lf, shared.ErrOutOfRange)
+	}
+
+	m.maxLoad = lf
+	m.nextResize = uintptr(float32(cap(m.buckets)) * lf)
+
+	return nil
+}
+
 func (m *Flat[K, V]) Copy() *Flat[K, V] {
 	newM := &Flat[K, V]{
-		buckets:   make([]bucket[K, V], uintptr(cap(m.buckets))),
-		capMinus1: m.capMinus1,
-		length:    m.length,
-		hasher:    m.hasher,
-		empty:     m.empty,
+		buckets:    make([]bucket[K, V], uintptr(cap(m.buckets))),
+		capMinus1:  m.capMinus1,
+		length:     m.length,
+		hasher:     m.hasher,
+		empty:      m.empty,
+		nextResize: m.nextResize,
+		maxLoad:    m.maxLoad,
 	}
 
 	copy(newM.buckets, m.buckets)
