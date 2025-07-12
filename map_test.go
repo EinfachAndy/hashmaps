@@ -3,17 +3,18 @@ package hashmaps_test
 import (
 	"math/rand"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/EinfachAndy/hashmaps"
-	"github.com/stretchr/testify/assert"
+	"github.com/EinfachAndy/hashmaps/flat"
+	"github.com/EinfachAndy/hashmaps/hopscotch"
+	"github.com/EinfachAndy/hashmaps/robin"
+	"github.com/EinfachAndy/hashmaps/shared"
+	"github.com/EinfachAndy/hashmaps/unordered"
 )
 
-var nLoops = 1000
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
+var nLoops = 10000
 
 func randString(n int) string {
 	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -27,69 +28,28 @@ func randString(n int) string {
 	return string(b)
 }
 
-func setupMaps[K comparable, V comparable]() []hashmaps.IHashMap[K, V] {
-	var (
-		robin     = hashmaps.NewRobinHood[K, V]()
-		unordered = hashmaps.NewUnordered[K, V]()
-		flat      = hashmaps.NewFlat[K, V]()
-		hopscotch = hashmaps.NewHopscotch[K, V]()
-	)
-
-	if err := robin.MaxLoad(0.9); err != nil {
-		panic(err.Error())
-	}
-
-	if err := hopscotch.MaxLoad(0.95); err != nil {
-		panic(err.Error())
-	}
-
-	return []hashmaps.IHashMap[K, V]{
-		{
-			Get:     hopscotch.Get,
-			Put:     hopscotch.Put,
-			Remove:  hopscotch.Remove,
-			Size:    hopscotch.Size,
-			Each:    hopscotch.Each,
-			Load:    hopscotch.Load,
-			Clear:   hopscotch.Clear,
-			Reserve: hopscotch.Reserve,
-		},
-		{
-			Get:     flat.Get,
-			Put:     flat.Put,
-			Remove:  flat.Remove,
-			Size:    flat.Size,
-			Each:    flat.Each,
-			Load:    flat.Load,
-			Clear:   flat.Clear,
-			Reserve: flat.Reserve,
-		},
-		{
-			Get:     unordered.Get,
-			Put:     unordered.Put,
-			Remove:  unordered.Remove,
-			Size:    unordered.Size,
-			Each:    unordered.Each,
-			Load:    unordered.Load,
-			Clear:   unordered.Clear,
-			Reserve: unordered.Reserve,
-		},
-		{
-			Get:     robin.Get,
-			Put:     robin.Put,
-			Remove:  robin.Remove,
-			Size:    robin.Size,
-			Each:    robin.Each,
-			Load:    robin.Load,
-			Clear:   robin.Clear,
-			Reserve: robin.Reserve,
-		},
+func setupMaps[K comparable, V comparable]() []hashmaps.HashMap[K, V] {
+	return []hashmaps.HashMap[K, V]{
+		*hashmaps.Factory(hashmaps.Config[K, V]{
+			Type:    hashmaps.Hopscotch,
+			MaxLoad: 0.95,
+		}),
+		*hashmaps.Factory(hashmaps.Config[K, V]{
+			Type: hashmaps.Flat,
+		}),
+		*hashmaps.Factory(hashmaps.Config[K, V]{
+			Type: hashmaps.Unordered,
+		}),
+		*hashmaps.Factory(hashmaps.Config[K, V]{
+			Type:    hashmaps.Robin,
+			MaxLoad: 0.90,
+		}),
 	}
 }
 
 func checkeq[K comparable, V comparable](
 	t *testing.T,
-	cm *hashmaps.IHashMap[K, V],
+	cm *hashmaps.HashMap[K, V],
 	get func(k K) (V, bool),
 ) {
 	cm.Each(func(key K, val V) bool {
@@ -104,82 +64,15 @@ func checkeq[K comparable, V comparable](
 	})
 }
 
-func TestCrossCheckInt(t *testing.T) {
-	maps := setupMaps[uint64, uint32]()
+func fuzzLoop[K comparable](t *testing.T, n int, getRandKey func(int) K) {
+	maps := setupMaps[K, K]()
 
 	for _, m := range maps {
-		stdm := make(map[uint64]uint32)
+		stdm := make(map[K]K)
 
-		for i := 0; i < nLoops; i++ {
+		for i := 0; i < n; i++ {
 			var (
-				key = uint64(rand.Intn(nLoops/10)) + 1
-				val = rand.Uint32()
-				op  = rand.Intn(4)
-			)
-
-			switch op {
-			case 0:
-				var (
-					v1, ok1 = m.Get(key)
-					v2, ok2 = stdm[key]
-				)
-
-				assert.Equal(t, ok1, ok2, "lookup wrong state")
-				assert.Equal(t, v1, v2, "lookup values are different")
-			case 1:
-				// prioritize insert operation
-				fallthrough
-			case 2:
-				_, wasIn := stdm[key]
-				stdm[key] = val
-				isNew := m.Put(key, val)
-				assert.NotEqual(t, isNew, wasIn, "Put returned wrong state")
-
-				v, found := m.Get(key)
-				assert.True(t, found, "lookup failed after insert for key %d", key)
-				assert.Equal(t, v, val, "values are not equal %d != %d", v, val)
-			case 3:
-				var del uint64
-
-				if len(stdm) == 0 {
-					break
-				}
-
-				for k := range stdm {
-					del = k
-					break
-				}
-
-				delete(stdm, del)
-
-				_, found := m.Get(del)
-				assert.True(t, found, "lookup failed for key %d", key)
-				assert.True(t, m.Remove(del))
-
-				_, found = m.Get(del)
-				assert.False(t, found, "key %d was not removed", key)
-			}
-
-			assert.Equal(t, len(stdm), m.Size(), "len of maps are not equal %d != %d", len(stdm), m.Size())
-
-			checkeq(t, &m, func(k uint64) (uint32, bool) {
-				v, ok := stdm[k]
-				return v, ok
-			})
-		}
-		t.Log("size:", m.Size(), "Load", m.Load())
-	}
-}
-
-func TestCrossCheckString(t *testing.T) {
-	maps := setupMaps[string, string]()
-
-	for _, m := range maps {
-		stdm := make(map[string]string)
-
-		for i := 0; i < nLoops; i++ {
-			var (
-				key = randString(rand.Intn(nLoops/10) + 10)
+				key = getRandKey(n / 10)
 				val = key
 				op  = rand.Intn(4)
 			)
@@ -206,7 +99,7 @@ func TestCrossCheckString(t *testing.T) {
 				assert.True(t, found, "lookup failed after insert for key %d", key)
 				assert.Equal(t, val, v, "values are not equal %d != %d", v, val)
 			case 3:
-				var del string
+				var del K
 
 				if len(stdm) == 0 {
 					break
@@ -229,7 +122,7 @@ func TestCrossCheckString(t *testing.T) {
 
 			assert.Equal(t, len(stdm), m.Size(), "len of maps are not equal %d != %d", len(stdm), m.Size())
 
-			checkeq(t, &m, func(k string) (string, bool) {
+			checkeq(t, &m, func(k K) (K, bool) {
 				v, ok := stdm[k]
 				return v, ok
 			})
@@ -238,8 +131,24 @@ func TestCrossCheckString(t *testing.T) {
 	}
 }
 
+func TestFuzzInt(t *testing.T) {
+	t.Parallel()
+
+	randInt := func(nLoops int) uint64 {
+		return uint64(rand.Intn(nLoops/10)) + 1
+	}
+
+	fuzzLoop(t, nLoops, randInt)
+}
+
+func TestFuzzString(t *testing.T) {
+	t.Parallel()
+
+	fuzzLoop(t, nLoops/4, randString)
+}
+
 func TestCopyRobin(t *testing.T) {
-	orig := hashmaps.NewRobinHood[uint64, uint32]()
+	orig := robin.New[uint64, uint32]()
 
 	for i := uint32(1); i <= 10; i++ {
 		orig.Put(uint64(i), i)
@@ -247,7 +156,7 @@ func TestCopyRobin(t *testing.T) {
 
 	cpy := orig.Copy()
 
-	c := hashmaps.IHashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
+	c := hashmaps.HashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
 	checkeq(t, &c, orig.Get)
 
 	cpy.Put(0, 42)
@@ -261,7 +170,7 @@ func TestCopyRobin(t *testing.T) {
 }
 
 func TestCopyFlat(t *testing.T) {
-	orig := hashmaps.NewFlatWithHasher[uint64, uint32](11, hashmaps.GetHasher[uint64]())
+	orig := flat.NewWithHasher[uint64, uint32](11, shared.GetHasher[uint64]())
 
 	for i := uint32(1); i <= 10; i++ {
 		orig.Put(uint64(i), i)
@@ -269,7 +178,7 @@ func TestCopyFlat(t *testing.T) {
 
 	cpy := orig.Copy()
 
-	c := hashmaps.IHashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
+	c := hashmaps.HashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
 	checkeq(t, &c, orig.Get)
 
 	cpy.Put(0, 42)
@@ -283,7 +192,7 @@ func TestCopyFlat(t *testing.T) {
 }
 
 func TestCopyHopscotch(t *testing.T) {
-	orig := hashmaps.NewHopscotch[uint64, uint32]()
+	orig := hopscotch.New[uint64, uint32]()
 
 	for i := uint32(1); i <= 10; i++ {
 		orig.Put(uint64(i), i)
@@ -291,7 +200,7 @@ func TestCopyHopscotch(t *testing.T) {
 
 	cpy := orig.Copy()
 
-	c := hashmaps.IHashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
+	c := hashmaps.HashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
 	checkeq(t, &c, orig.Get)
 
 	cpy.Put(0, 42)
@@ -305,6 +214,8 @@ func TestCopyHopscotch(t *testing.T) {
 }
 
 func TestSizes(t *testing.T) {
+	t.Parallel()
+
 	maps := setupMaps[int, int]()
 
 	for _, m := range maps {
@@ -319,6 +230,8 @@ func TestSizes(t *testing.T) {
 }
 
 func TestClear(t *testing.T) {
+	t.Parallel()
+
 	maps := setupMaps[int, int]()
 
 	for _, m := range maps {
@@ -337,6 +250,8 @@ func TestClear(t *testing.T) {
 }
 
 func TestSimpleUsage(t *testing.T) {
+	t.Parallel()
+
 	maps := setupMaps[int, int]()
 
 	for _, m := range maps {
@@ -369,7 +284,7 @@ func TestUnorderedLookup(t *testing.T) {
 	}
 
 	var (
-		m = hashmaps.NewUnordered[string, dummyValue]()
+		m = unordered.New[string, dummyValue]()
 		v = dummyValue{test: 5}
 	)
 
@@ -384,7 +299,7 @@ func TestUnorderedLookup(t *testing.T) {
 }
 
 func TestMaxLoad(t *testing.T) {
-	m := hashmaps.NewRobinHood[int, int]()
+	m := robin.New[int, int]()
 
 	assert.Error(t, m.MaxLoad(0.0))
 	assert.Error(t, m.MaxLoad(-1.0))
@@ -393,6 +308,8 @@ func TestMaxLoad(t *testing.T) {
 }
 
 func TestComplexKeyType(t *testing.T) {
+	t.Parallel()
+
 	type dummy struct {
 		a int8
 		b uint32
@@ -405,34 +322,24 @@ func TestComplexKeyType(t *testing.T) {
 		hasher = func(d dummy) uintptr {
 			return 0
 		}
-		robin     = hashmaps.NewRobinHoodWithHasher[dummy, string](hasher)
-		unordered = hashmaps.NewUnorderedWithHasher[dummy, string](hasher)
-		flat      = hashmaps.NewFlatWithHasher[dummy, string](dummy{}, hasher)
-		maps      = []hashmaps.IHashMap[dummy, string]{
-			{
-				Get:    flat.Get,
-				Put:    flat.Put,
-				Remove: flat.Remove,
-				Size:   flat.Size,
-				Each:   flat.Each,
-				Load:   flat.Load,
-			},
-			{
-				Get:    robin.Get,
-				Put:    robin.Put,
-				Remove: robin.Remove,
-				Size:   robin.Size,
-				Each:   robin.Each,
-				Load:   robin.Load,
-			},
-			{
-				Get:    unordered.Get,
-				Put:    unordered.Put,
-				Remove: unordered.Remove,
-				Size:   unordered.Size,
-				Each:   unordered.Each,
-				Load:   unordered.Load,
-			},
+		maps = []hashmaps.HashMap[dummy, string]{
+			*hashmaps.Factory(hashmaps.Config[dummy, string]{
+				Type:   hashmaps.Flat,
+				Hasher: hasher,
+				Empty:  dummy{},
+			}),
+			*hashmaps.Factory(hashmaps.Config[dummy, string]{
+				Type:   hashmaps.Robin,
+				Hasher: hasher,
+			}),
+			*hashmaps.Factory(hashmaps.Config[dummy, string]{
+				Type:   hashmaps.Hopscotch,
+				Hasher: hasher,
+			}),
+			*hashmaps.Factory(hashmaps.Config[dummy, string]{
+				Type:   hashmaps.Unordered,
+				Hasher: hasher,
+			}),
 		}
 	)
 
@@ -451,6 +358,8 @@ func TestComplexKeyType(t *testing.T) {
 }
 
 func TestIterator(t *testing.T) {
+	t.Parallel()
+
 	maps := setupMaps[int, int]()
 
 	for _, m := range maps {
@@ -475,6 +384,8 @@ func TestIterator(t *testing.T) {
 }
 
 func TestIteratorEarlyTermination(t *testing.T) {
+	t.Parallel()
+
 	maps := setupMaps[int, int]()
 
 	for _, m := range maps {

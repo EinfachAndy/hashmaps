@@ -1,58 +1,10 @@
-package hashmaps
+package hopscotch
 
-import "fmt"
+import (
+	"fmt"
 
-const (
-	reservedBits        = uintptr(1)        // number of reserved bits within the hop info
-	occupyBit           = uint64(1)         // bit mask for the occupy bit
-	maxNeighborhoodSize = 64 - reservedBits // max size of H (neighborhood)
+	"github.com/EinfachAndy/hashmaps/shared"
 )
-
-type hBucket[K comparable, V any] struct {
-	hopInfo uint64 // stores the neighborhood and the state of the reserved bits
-	key     K
-	val     V
-}
-
-// set the state of v at the i-th position within the neighborhood
-//
-//go:inline
-func (b *hBucket[K, V]) set(i uintptr, v bool) {
-	mask := uint64(1) << (i + reservedBits)
-	if v {
-		b.hopInfo |= mask
-	} else {
-		b.hopInfo &= flip(mask)
-	}
-}
-
-// getNeighborhood returns the neighborhood bit mask
-//
-//go:inline
-func (b *hBucket[K, V]) getNeighborhood() uint64 {
-	return b.hopInfo >> uint64(reservedBits)
-}
-
-// returns true if the bucket is empty
-//
-//go:inline
-func (b *hBucket[K, V]) isEmpty() bool {
-	return (b.hopInfo & occupyBit) == 0
-}
-
-// release marks the bucket as empty
-//
-//go:inline
-func (b *hBucket[K, V]) release() {
-	b.hopInfo &= flip(occupyBit)
-}
-
-// occupy marks the bucket as not empty
-//
-//go:inline
-func (b *hBucket[K, V]) occupy() {
-	b.hopInfo |= occupyBit
-}
 
 // Hopscotch is a hashmap implementation which uses open addressing,
 // where collisions are managed within a limited neighborhood. That is
@@ -64,8 +16,8 @@ func (b *hBucket[K, V]) occupy() {
 // subsequent swap of closer buckets are done or the size of the
 // neighborhood is increased.
 type Hopscotch[K comparable, V any] struct {
-	buckets []hBucket[K, V]
-	hasher  HashFn[K]
+	buckets []bucket[K, V]
+	hasher  shared.HashFn[K]
 	// length stores the current inserted elements
 	length uintptr
 	// capMinus1 is used for a bitwise AND on the hash value,
@@ -76,13 +28,13 @@ type Hopscotch[K comparable, V any] struct {
 	maxLoad          float32
 }
 
-// NewHopscotch creates a ready to use `Hopscotch` hash map with default settings.
-func NewHopscotch[K comparable, V any]() *Hopscotch[K, V] {
-	return NewHopscotchWithHasher[K, V](GetHasher[K]())
+// New creates a ready to use `Hopscotch` hash map with default settings.
+func New[K comparable, V any]() *Hopscotch[K, V] {
+	return NewWithHasher[K, V](shared.GetHasher[K]())
 }
 
-// NewHopscotchWithHasher same as `NewHopscotch` but with a given hash function.
-func NewHopscotchWithHasher[K comparable, V any](hasher HashFn[K]) *Hopscotch[K, V] {
+// NewWithHasher same as `NewHopscotch` but with a given hash function.
+func NewWithHasher[K comparable, V any](hasher shared.HashFn[K]) *Hopscotch[K, V] {
 	const (
 		DefaultNeighborhoodSize = 4 // must be pow of 2
 	)
@@ -90,10 +42,10 @@ func NewHopscotchWithHasher[K comparable, V any](hasher HashFn[K]) *Hopscotch[K,
 	m := &Hopscotch[K, V]{
 		hasher:           hasher,
 		neighborhoodSize: DefaultNeighborhoodSize,
-		maxLoad:          DefaultMaxLoad,
+		maxLoad:          shared.DefaultMaxLoad,
 	}
 
-	m.Reserve(DefaultSize)
+	m.Reserve(shared.DefaultSize)
 
 	return m
 }
@@ -107,7 +59,7 @@ func (m *Hopscotch[K, V]) grow() {
 
 func (m *Hopscotch[K, V]) rehash(n uintptr) {
 	nmap := Hopscotch[K, V]{
-		buckets:          make([]hBucket[K, V], n+m.neighborhoodSize),
+		buckets:          make([]bucket[K, V], n+m.neighborhoodSize),
 		hasher:           m.hasher,
 		length:           m.length,
 		capMinus1:        n - 1,
@@ -135,7 +87,7 @@ func (m *Hopscotch[K, V]) rehash(n uintptr) {
 func (m *Hopscotch[K, V]) Reserve(n uintptr) {
 	var (
 		needed = uintptr(float32(n) / m.maxLoad)
-		newCap = uintptr(NextPowerOf2(uint64(needed)))
+		newCap = uintptr(shared.NextPowerOf2(uint64(needed)))
 	)
 
 	if uintptr(cap(m.buckets)) < newCap {
@@ -358,7 +310,7 @@ func (m *Hopscotch[K, V]) Clear() {
 // Returns ErrOutOfRange if `lf` is not in the open range (0.0,1.0).
 func (m *Hopscotch[K, V]) MaxLoad(lf float32) error {
 	if lf <= 0.0 || lf >= 1.0 {
-		return fmt.Errorf("%f: %w", lf, ErrOutOfRange)
+		return fmt.Errorf("%f: %w", lf, shared.ErrOutOfRange)
 	}
 
 	m.maxLoad = lf
@@ -380,7 +332,7 @@ func (m *Hopscotch[K, V]) Size() int {
 // Copy returns a copy of this map.
 func (m *Hopscotch[K, V]) Copy() *Hopscotch[K, V] {
 	newM := &Hopscotch[K, V]{
-		buckets:          make([]hBucket[K, V], cap(m.buckets)),
+		buckets:          make([]bucket[K, V], cap(m.buckets)),
 		capMinus1:        m.capMinus1,
 		length:           m.length,
 		hasher:           m.hasher,

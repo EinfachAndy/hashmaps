@@ -10,15 +10,13 @@ This package collects several hash map implementations:
 * `Hopscotch` Hash Map, an open addressing hash table with worst case constant runtime for lookup and delete operations.
 * `Flat` Hash Map, an open addressing hash table with linear probing. 
 
-# Getting Started
+# Getting started
 
 ```bash
 go get -u github.com/EinfachAndy/hashmaps
 ```
 
-## Robin Hood Hash Map
-
-The example code can be try out [here](https://go.dev/play/p/ZeKzsiGXlh7).
+## Example usage
 
 ```go
 package main
@@ -26,40 +24,22 @@ package main
 import (
 	"fmt"
 
-	"github.com/EinfachAndy/hashmaps"
+	"github.com/EinfachAndy/hashmaps/hopscotch"
 )
 
 func main() {
-	m := hashmaps.NewRobinHood[int, int]()
+	m := hopscotch.New[int, int]()
+	m.Reserve(100)
+	m.Put(1, 1)
+	fmt.Println(m.Get(1))
+	m.Remove(1)
+	fmt.Println(m.Get(1))
 
-	// insert some elements
-	m.Put(2, 2)
-	isNew := m.Put(1, 5)
-	if !isNew {
-		panic("broken")
-	}
-
-	// lookup a key
-	val, found := m.Get(1)
-	if !found || val != 5 {
-		panic("broken")
-	}
-
-	// iterate the map
-	m.Each(func(key int, val int) bool {
-		fmt.Println(key, "->", val)
-		return false
-	})
-
-	// Print some metrics
-	fmt.Println("Size:", m.Size(), "load:", m.Load())
-
-	// remove keys
-	wasIn := m.Remove(1)
-	if !wasIn {
-		panic("broken")
-	}
+	// Output:
+	// 1 true
+	// 0 false
 }
+
 ```
 
 # Benchmarks

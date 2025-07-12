@@ -1,11 +1,15 @@
-package hashmaps
+package unordered
+
+import (
+	"github.com/EinfachAndy/hashmaps/shared"
+)
 
 type linkedList[K comparable, V any] struct {
-	head *listNode[K, V]
+	head *node[K, V]
 }
 
-type listNode[K comparable, V any] struct {
-	next  *listNode[K, V]
+type node[K comparable, V any] struct {
+	next  *node[K, V]
 	key   K
 	value V
 }
@@ -16,7 +20,7 @@ type listNode[K comparable, V any] struct {
 // or swapped. That supports holding points instead of copy by value. see: `Insert` and `lookup`.
 type Unordered[K comparable, V any] struct {
 	buckets []linkedList[K, V]
-	hasher  HashFn[K]
+	hasher  shared.HashFn[K]
 	// length stores the current inserted elements
 	length uintptr
 	// capMinus1 is used for a bitwise AND on the hash value,
@@ -24,18 +28,28 @@ type Unordered[K comparable, V any] struct {
 	capMinus1 uintptr
 }
 
-// NewUnordered creates a ready to use `unordered` hash map with default settings.
-func NewUnordered[K comparable, V any]() *Unordered[K, V] {
-	return NewUnorderedWithHasher[K, V](GetHasher[K]())
+// New creates a ready to use `unordered` hash map with default settings.
+func New[K comparable, V any]() *Unordered[K, V] {
+	return NewWithHasher[K, V](shared.GetHasher[K]())
 }
 
-// NewUnorderedWithHasher same as `NewUnordered` but with a given hash function.
-func NewUnorderedWithHasher[K comparable, V any](hasher HashFn[K]) *Unordered[K, V] {
+// NewWithHasher same as `NewUnordered` but with a given hash function.
+func NewWithHasher[K comparable, V any](hasher shared.HashFn[K]) *Unordered[K, V] {
 	return &Unordered[K, V]{
-		capMinus1: 3,
-		buckets:   make([]linkedList[K, V], 4),
+		capMinus1: shared.DefaultSize - 1,
+		buckets:   make([]linkedList[K, V], shared.DefaultSize),
 		hasher:    hasher,
 	}
+}
+
+//go:inline
+func (m *Unordered[K, V]) search(key K, idx uintptr) *V {
+	for current := m.buckets[idx].head; current != nil; current = current.next {
+		if current.key == key {
+			return &(current.value)
+		}
+	}
+	return nil
 }
 
 // Get returns the value stored for this key, or false if not found.
@@ -45,10 +59,9 @@ func (m *Unordered[K, V]) Get(key K) (V, bool) {
 		v   V
 	)
 
-	for current := m.buckets[idx].head; current != nil; current = current.next {
-		if current.key == key {
-			return current.value, true
-		}
+	ptr := m.search(key, idx)
+	if ptr != nil {
+		return *ptr, true
 	}
 
 	return v, false
@@ -59,14 +72,13 @@ func (m *Unordered[K, V]) Get(key K) (V, bool) {
 // Note, use `Get` for small values.
 func (m *Unordered[K, V]) Lookup(key K) *V {
 	idx := m.hasher(key) & m.capMinus1
+	return m.search(key, idx)
+}
 
-	for current := m.buckets[idx].head; current != nil; current = current.next {
-		if current.key == key {
-			return &(current.value)
-		}
-	}
-
-	return nil
+//go:inline
+func (m *Unordered[K, V]) emplace(newNode *node[K, V], idx uintptr) {
+	newNode.next = m.buckets[idx].head
+	m.buckets[idx].head = newNode
 }
 
 // Insert returns a pointer to a zero allocated value. These pointer is valid until
@@ -77,53 +89,35 @@ func (m *Unordered[K, V]) Insert(key K) (*V, bool) {
 	}
 
 	idx := m.hasher(key) & m.capMinus1
-	// check head
-	if m.buckets[idx].head == nil {
-		newNode := &listNode[K, V]{key: key}
-		m.buckets[idx].head = newNode
-		m.length++
 
-		return &newNode.value, true
+	ptr := m.search(key, idx)
+	if ptr != nil {
+		return ptr, false
 	}
 
-	// search
-	for current := m.buckets[idx].head; ; current = current.next {
-		if current.key == key {
-			return &current.value, false
-		}
+	m.length++
+	newNode := &node[K, V]{key: key}
+	m.emplace(newNode, idx)
 
-		// reached end of list, so insert
-		if current.next == nil {
-			newNode := &listNode[K, V]{key: key}
-
-			current.next = newNode
-			m.length++
-
-			return &newNode.value, true
-		}
-	}
+	return &newNode.value, true
 }
 
 func (m *Unordered[K, V]) rehash(n uintptr) {
 	m.capMinus1 = n - 1
-	newBuckets := make([]linkedList[K, V], n)
+	oldBuckets := m.buckets
+	m.buckets = make([]linkedList[K, V], n)
 
-	for i := range m.buckets {
-		for current := m.buckets[i].head; current != nil; {
+	for i := range oldBuckets {
+		for current := oldBuckets[i].head; current != nil; {
 			newElem := current
 			current = current.next
 			newElem.next = nil // unlink from old
 
 			// push newElem to front of the list
 			newIdx := m.hasher(newElem.key) & m.capMinus1
-			head := newBuckets[newIdx].head
-			headRef := &newBuckets[newIdx].head
-			*headRef = newElem
-			newElem.next = head
+			m.emplace(newElem, newIdx)
 		}
 	}
-
-	m.buckets = newBuckets
 }
 
 // Clear removes all key-value pairs from the map.
@@ -153,7 +147,7 @@ func (m *Unordered[K, V]) grow() {
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
 // If n is lower than that, the function may have no effect.
 func (m *Unordered[K, V]) Reserve(n uintptr) {
-	newCap := uintptr(NextPowerOf2(uint64(n)))
+	newCap := uintptr(shared.NextPowerOf2(uint64(n)))
 	if uintptr(cap(m.buckets)) < newCap {
 		m.rehash(newCap)
 	}
@@ -177,7 +171,7 @@ func (m *Unordered[K, V]) Remove(key K) bool {
 	var (
 		idx     = m.hasher(key) & m.capMinus1
 		current = m.buckets[idx].head
-		prev    *listNode[K, V]
+		prev    *node[K, V]
 	)
 
 	// check head

@@ -1,8 +1,12 @@
-package hashmaps
+package flat
 
-import "fmt"
+import (
+	"fmt"
 
-type fBucket[K comparable, V any] struct {
+	"github.com/EinfachAndy/hashmaps/shared"
+)
+
+type bucket[K comparable, V any] struct {
 	key   K
 	value V
 }
@@ -10,17 +14,17 @@ type fBucket[K comparable, V any] struct {
 // Flat is a open addressing hash map implementation which uses linear probing
 // as conflict resolution.
 type Flat[K comparable, V any] struct {
-	buckets   []fBucket[K, V]
+	buckets   []bucket[K, V]
 	empty     K
-	hasher    HashFn[K]
+	hasher    shared.HashFn[K]
 	capMinus1 uintptr
 	length    uintptr
 }
 
 //go:inline
-func newfBucketArray[K comparable, V any](capacity uintptr, empty K) []fBucket[K, V] {
+func newBucketArray[K comparable, V any](capacity uintptr, empty K) []bucket[K, V] {
 	var (
-		buckets = make([]fBucket[K, V], capacity)
+		buckets = make([]bucket[K, V], capacity)
 		zero    K
 	)
 
@@ -34,7 +38,7 @@ func newfBucketArray[K comparable, V any](capacity uintptr, empty K) []fBucket[K
 	return buckets
 }
 
-// NewFlat creates a new ready to use flat hash map.
+// New creates a new ready to use flat hash map.
 //
 // Note:
 // This map has zero memory overhead per bucket and uses therefore
@@ -43,17 +47,17 @@ func newfBucketArray[K comparable, V any](capacity uintptr, empty K) []fBucket[K
 //   - 0 (int, uint, uint64, ...)
 //   - 0.0 (float32, float64)
 //   - "" (string)
-func NewFlat[K comparable, V any]() *Flat[K, V] {
+func New[K comparable, V any]() *Flat[K, V] {
 	var empty K // uses default zero representation
-	return NewFlatWithHasher[K, V](empty, GetHasher[K]())
+	return NewWithHasher[K, V](empty, shared.GetHasher[K]())
 }
 
-// NewFlatWithHasher constructs a new map with the given hasher.
+// NewWithHasher constructs a new map with the given hasher.
 // Furthermore the representation for a empty bucket can be set.
-func NewFlatWithHasher[K comparable, V any](empty K, hasher HashFn[K]) *Flat[K, V] {
+func NewWithHasher[K comparable, V any](empty K, hasher shared.HashFn[K]) *Flat[K, V] {
 	return &Flat[K, V]{
-		buckets:   newfBucketArray[K, V](4, empty),
-		capMinus1: 3,
+		buckets:   newBucketArray[K, V](shared.DefaultSize, empty),
+		capMinus1: shared.DefaultSize - 1,
 		hasher:    hasher,
 		empty:     empty,
 	}
@@ -89,7 +93,7 @@ func (m *Flat[K, V]) resize(n uintptr) {
 		length:    m.length,
 		empty:     m.empty,
 		hasher:    m.hasher,
-		buckets:   newfBucketArray[K, V](n, m.empty),
+		buckets:   newBucketArray[K, V](n, m.empty),
 	}
 
 	for i := range m.buckets {
@@ -195,7 +199,7 @@ func (m *Flat[K, V]) Remove(key K) bool {
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
 // If n is lower than that, the function may have no effect.
 func (m *Flat[K, V]) Reserve(n uintptr) {
-	newCap := uintptr(NextPowerOf2(uint64(2 * n)))
+	newCap := uintptr(shared.NextPowerOf2(uint64(2 * n)))
 	if uintptr(cap(m.buckets)) < newCap {
 		m.resize(newCap)
 	}
@@ -222,7 +226,7 @@ func (m *Flat[K, V]) Load() float32 {
 
 func (m *Flat[K, V]) Copy() *Flat[K, V] {
 	newM := &Flat[K, V]{
-		buckets:   make([]fBucket[K, V], uintptr(cap(m.buckets))),
+		buckets:   make([]bucket[K, V], uintptr(cap(m.buckets))),
 		capMinus1: m.capMinus1,
 		length:    m.length,
 		hasher:    m.hasher,

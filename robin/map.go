@@ -1,7 +1,9 @@
-package hashmaps
+package robin
 
 import (
 	"fmt"
+
+	"github.com/EinfachAndy/hashmaps/shared"
 )
 
 const (
@@ -31,7 +33,7 @@ type bucket[K comparable, V any] struct {
 // like the golang std map or the Unordered map.
 type RobinHood[K comparable, V any] struct {
 	buckets []bucket[K, V]
-	hasher  HashFn[K]
+	hasher  shared.HashFn[K]
 	// length stores the current inserted elements
 	length uintptr
 	// capMinus1 is used for a bitwise AND on the hash value,
@@ -53,22 +55,20 @@ func newBucketArray[K comparable, V any](capacity uintptr) []bucket[K, V] {
 	return buckets
 }
 
-// NewRobinHood creates a ready to use `RobinHood` hash map with default settings.
-func NewRobinHood[K comparable, V any]() *RobinHood[K, V] {
-	return NewRobinHoodWithHasher[K, V](GetHasher[K]())
+// New creates a ready to use `RobinHood` hash map with default settings.
+func New[K comparable, V any]() *RobinHood[K, V] {
+	return NewWithHasher[K, V](shared.GetHasher[K]())
 }
 
-// NewRobinHoodWithHasher same as `NewRobinHood` but with a given hash function.
-func NewRobinHoodWithHasher[K comparable, V any](hasher HashFn[K]) *RobinHood[K, V] {
-	capacity := uintptr(4)
-
-	return &RobinHood[K, V]{
-		buckets:    newBucketArray[K, V](capacity),
-		capMinus1:  capacity - 1,
-		hasher:     hasher,
-		nextResize: 2,
-		maxLoad:    DefaultMaxLoad,
+// NewWithHasher same as `NewRobinHood` but with a given hash function.
+func NewWithHasher[K comparable, V any](hasher shared.HashFn[K]) *RobinHood[K, V] {
+	m := &RobinHood[K, V]{
+		hasher:  hasher,
+		maxLoad: shared.DefaultMaxLoad,
 	}
+	m.Reserve(shared.DefaultSize)
+
+	return m
 }
 
 // Get returns the value stored for this key, or false if there is no such value.
@@ -101,7 +101,7 @@ func (m *RobinHood[K, V]) Get(key K) (V, bool) {
 func (m *RobinHood[K, V]) Reserve(n uintptr) {
 	var (
 		needed = uintptr(float32(n) / m.maxLoad)
-		newCap = uintptr(NextPowerOf2(uint64(needed)))
+		newCap = uintptr(shared.NextPowerOf2(uint64(needed)))
 	)
 
 	if uintptr(cap(m.buckets)) < newCap {
@@ -123,7 +123,7 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 		if m.buckets[i].psl != emptyBucket {
 			idx := newm.hasher(m.buckets[i].key) & newm.capMinus1
 			m.buckets[i].psl = 0
-			newm.emplaceNew(&m.buckets[i], idx)
+			newm.emplace(&m.buckets[i], idx)
 		}
 	}
 
@@ -158,12 +158,12 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 	m.length++
 
 	newBucket := bucket[K, V]{key: key, value: val, psl: psl}
-	m.emplaceNew(&newBucket, idx)
+	m.emplace(&newBucket, idx)
 
 	return true
 }
 
-// emplaceNew applies the Robin Hood creed to all following buckets until a empty is found.
+// emplace applies the Robin Hood creed to all following buckets until a empty is found.
 // Robin Hood creed: "takes from the rich and gives to the poor".
 // rich means, low psl
 // poor means, higher psl
@@ -172,7 +172,7 @@ func (m *RobinHood[K, V]) Put(key K, val V) bool {
 // where the expected length of the longest PSL is O(log(n)).
 //
 //go:inline
-func (m *RobinHood[K, V]) emplaceNew(current *bucket[K, V], idx uintptr) {
+func (m *RobinHood[K, V]) emplace(current *bucket[K, V], idx uintptr) {
 	for ; ; current.psl++ {
 		if m.buckets[idx].psl == emptyBucket {
 			// emplace the element, a valid bucket was found
@@ -250,7 +250,7 @@ func (m *RobinHood[K, V]) Load() float32 {
 // Returns ErrOutOfRange if `lf` is not in the open range (0.0,1.0).
 func (m *RobinHood[K, V]) MaxLoad(lf float32) error {
 	if lf <= 0.0 || lf >= 1.0 {
-		return fmt.Errorf("%f: %w", lf, ErrOutOfRange)
+		return fmt.Errorf("%f: %w", lf, shared.ErrOutOfRange)
 	}
 
 	m.maxLoad = lf

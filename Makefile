@@ -24,7 +24,7 @@ fmt: ## uses gofmt to format the source code base
 	gofmt -w $(shell find -name "*.go")
 
 coverage: ## generates test coverage
-	go test -v -coverprofile coverage.out
+	go test -coverpkg ./... -coverprofile coverage.out ./...
 	go tool cover -html coverage.out -o coverage.html
 
 lint: ## runs a golang source code linter

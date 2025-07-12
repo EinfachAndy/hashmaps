@@ -1,4 +1,4 @@
-package hashmaps
+package shared
 
 import (
 	"encoding/binary"
