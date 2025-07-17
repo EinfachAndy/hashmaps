@@ -1,6 +1,8 @@
 package unordered
 
 import (
+	"fmt"
+
 	"github.com/EinfachAndy/hashmaps/shared"
 )
 
@@ -26,6 +28,9 @@ type Unordered[K comparable, V any] struct {
 	// capMinus1 is used for a bitwise AND on the hash value,
 	// because the size of the underlying array is a power of two value
 	capMinus1 uintptr
+
+	nextResize uintptr
+	maxLoad    float32
 }
 
 // New creates a ready to use `unordered` hash map with default settings.
@@ -35,11 +40,13 @@ func New[K comparable, V any]() *Unordered[K, V] {
 
 // NewWithHasher same as `NewUnordered` but with a given hash function.
 func NewWithHasher[K comparable, V any](hasher shared.HashFn[K]) *Unordered[K, V] {
-	return &Unordered[K, V]{
-		capMinus1: shared.DefaultSize - 1,
-		buckets:   make([]linkedList[K, V], shared.DefaultSize),
-		hasher:    hasher,
+	m := &Unordered[K, V]{
+		hasher:  hasher,
+		maxLoad: shared.DefaultMaxLoad,
 	}
+	m.Reserve(shared.DefaultSize)
+
+	return m
 }
 
 //go:inline
@@ -76,15 +83,15 @@ func (m *Unordered[K, V]) Lookup(key K) *V {
 }
 
 //go:inline
-func (m *Unordered[K, V]) emplace(newNode *node[K, V], idx uintptr) {
-	newNode.next = m.buckets[idx].head
-	m.buckets[idx].head = newNode
+func (m *Unordered[K, V]) pushFront(head **node[K, V], newNode *node[K, V]) {
+	newNode.next = *head
+	*head = newNode
 }
 
 // Insert returns a pointer to a zero allocated value. These pointer is valid until
 // the key is part of the hash map. Note, use `Put` for small values.
 func (m *Unordered[K, V]) Insert(key K) (*V, bool) {
-	if m.length >= uintptr(cap(m.buckets)) {
+	if m.length >= m.nextResize {
 		m.grow()
 	}
 
@@ -97,15 +104,16 @@ func (m *Unordered[K, V]) Insert(key K) (*V, bool) {
 
 	m.length++
 	newNode := &node[K, V]{key: key}
-	m.emplace(newNode, idx)
+	m.pushFront(&(m.buckets[idx].head), newNode)
 
 	return &newNode.value, true
 }
 
-func (m *Unordered[K, V]) rehash(n uintptr) {
+func (m *Unordered[K, V]) resize(n uintptr) {
 	m.capMinus1 = n - 1
 	oldBuckets := m.buckets
 	m.buckets = make([]linkedList[K, V], n)
+	m.nextResize = uintptr(float32(n) * m.maxLoad)
 
 	for i := range oldBuckets {
 		for current := oldBuckets[i].head; current != nil; {
@@ -115,7 +123,7 @@ func (m *Unordered[K, V]) rehash(n uintptr) {
 
 			// push newElem to front of the list
 			newIdx := m.hasher(newElem.key) & m.capMinus1
-			m.emplace(newElem, newIdx)
+			m.pushFront(&(m.buckets[newIdx].head), newElem)
 		}
 	}
 }
@@ -141,15 +149,19 @@ func (m *Unordered[K, V]) Load() float32 {
 
 func (m *Unordered[K, V]) grow() {
 	newSize := uintptr(cap(m.buckets) * 2)
-	m.rehash(newSize)
+	m.resize(newSize)
 }
 
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
 // If n is lower than that, the function may have no effect.
 func (m *Unordered[K, V]) Reserve(n uintptr) {
-	newCap := uintptr(shared.NextPowerOf2(uint64(n)))
+	var (
+		needed = uintptr(float32(n) / m.maxLoad)
+		newCap = uintptr(shared.NextPowerOf2(uint64(needed)))
+	)
+
 	if uintptr(cap(m.buckets)) < newCap {
-		m.rehash(newCap)
+		m.resize(newCap)
 	}
 }
 
@@ -197,6 +209,37 @@ func (m *Unordered[K, V]) Remove(key K) bool {
 	m.length--
 
 	return true
+}
+
+// Copy returns a copy of this map.
+func (m *Unordered[K, V]) Copy() *Unordered[K, V] {
+	newM := &Unordered[K, V]{
+		buckets:   make([]linkedList[K, V], cap(m.buckets)),
+		capMinus1: m.capMinus1,
+		length:    m.length,
+		hasher:    m.hasher,
+	}
+
+	m.Each(func(k K, v V) bool {
+		newM.Put(k, v)
+		return false
+	})
+
+	return newM
+}
+
+// MaxLoad forces resizing if the ratio is reached.
+// Useful values are in range [0.7-1.0].
+// Returns ErrOutOfRange if `lf` is not in the open range (0.0,1.0).
+func (m *Unordered[K, V]) MaxLoad(lf float32) error {
+	if lf <= 0.0 {
+		return fmt.Errorf("%f: %w", lf, shared.ErrOutOfRange)
+	}
+
+	m.maxLoad = lf
+	m.nextResize = uintptr(float32(cap(m.buckets)) * lf)
+
+	return nil
 }
 
 // Each calls 'fn' on every key-value pair in the hash map in no particular order.

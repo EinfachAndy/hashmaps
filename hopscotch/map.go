@@ -54,10 +54,10 @@ func NewWithHasher[K comparable, V any](hasher shared.HashFn[K]) *Hopscotch[K, V
 //
 //go:inline
 func (m *Hopscotch[K, V]) grow() {
-	m.rehash(2 * (m.capMinus1 + 1))
+	m.resize(2 * (m.capMinus1 + 1))
 }
 
-func (m *Hopscotch[K, V]) rehash(n uintptr) {
+func (m *Hopscotch[K, V]) resize(n uintptr) {
 	nmap := Hopscotch[K, V]{
 		buckets:          make([]bucket[K, V], n+m.neighborhoodSize),
 		hasher:           m.hasher,
@@ -91,7 +91,7 @@ func (m *Hopscotch[K, V]) Reserve(n uintptr) {
 	)
 
 	if uintptr(cap(m.buckets)) < newCap {
-		m.rehash(newCap)
+		m.resize(newCap)
 	}
 }
 
@@ -195,9 +195,7 @@ func (m *Hopscotch[K, V]) increaseNeighborhood() bool {
 // the neighborhood invariant.
 func (m *Hopscotch[K, V]) emplace(key K, val V, homeIdx uintptr) {
 START:
-	var (
-		emptyIdx = homeIdx
-	)
+	emptyIdx := homeIdx
 
 	// linear probing for the next empty bucket
 	for ; ; emptyIdx++ {

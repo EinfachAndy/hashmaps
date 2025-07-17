@@ -39,9 +39,19 @@ type Config[K comparable, V any] struct {
 	Empty   K
 }
 
-// Factory is a generic function to instantiate different kind of
-// hash map implementations.
-func Factory[K comparable, V any](cfg Config[K, V]) *HashMap[K, V] {
+// MustNewHashMap same as 'NewHashMap' but panics if and only if an error occurs.
+func MustNewHashMap[K comparable, V any](cfg Config[K, V]) *HashMap[K, V] {
+	m, err := NewHashMap(cfg)
+	if err != nil {
+		panic(err.Error())
+	}
+	return m
+}
+
+// NewHashMap is a factory function to instantiate different kind of generic
+// hash map implementations. A struct with function pointers is used as
+// interface. In most cases the usage of the dedicate hash map type is recommended.
+func NewHashMap[K comparable, V any](cfg Config[K, V]) (*HashMap[K, V], error) {
 	if cfg.Hasher == nil {
 		cfg.Hasher = shared.GetHasher[K]()
 	}
@@ -77,6 +87,7 @@ func Factory[K comparable, V any](cfg Config[K, V]) *HashMap[K, V] {
 		res.Each = m.Each
 		res.Get = m.Get
 		res.Load = m.Load
+		res.MaxLoad = m.MaxLoad
 		res.Put = m.Put
 		res.Remove = m.Remove
 		res.Reserve = m.Reserve
@@ -95,12 +106,14 @@ func Factory[K comparable, V any](cfg Config[K, V]) *HashMap[K, V] {
 	}
 
 	if cfg.MaxLoad > 0 {
-		res.MaxLoad(cfg.MaxLoad)
+		if err := res.MaxLoad(cfg.MaxLoad); err != nil {
+			return nil, err
+		}
 	}
 
 	if cfg.Size > 0 {
 		res.Reserve(cfg.Size)
 	}
 
-	return res
+	return res, nil
 }

@@ -30,18 +30,18 @@ func randString(n int) string {
 
 func setupMaps[K comparable, V comparable]() []hashmaps.HashMap[K, V] {
 	return []hashmaps.HashMap[K, V]{
-		*hashmaps.Factory(hashmaps.Config[K, V]{
+		*hashmaps.MustNewHashMap(hashmaps.Config[K, V]{
 			Type:    hashmaps.Hopscotch,
 			MaxLoad: 0.95,
 		}),
-		*hashmaps.Factory(hashmaps.Config[K, V]{
+		*hashmaps.MustNewHashMap(hashmaps.Config[K, V]{
 			Type:    hashmaps.Flat,
 			MaxLoad: 0.5,
 		}),
-		*hashmaps.Factory(hashmaps.Config[K, V]{
+		*hashmaps.MustNewHashMap(hashmaps.Config[K, V]{
 			Type: hashmaps.Unordered,
 		}),
-		*hashmaps.Factory(hashmaps.Config[K, V]{
+		*hashmaps.MustNewHashMap(hashmaps.Config[K, V]{
 			Type:    hashmaps.Robin,
 			MaxLoad: 0.90,
 		}),
@@ -148,7 +148,7 @@ func TestFuzzString(t *testing.T) {
 	fuzzLoop(t, nLoops/4, randString)
 }
 
-func TestCopyRobin(t *testing.T) {
+func TestCopy(t *testing.T) {
 	orig := robin.New[uint64, uint32]()
 
 	for i := uint32(1); i <= 10; i++ {
@@ -194,6 +194,28 @@ func TestCopyFlat(t *testing.T) {
 
 func TestCopyHopscotch(t *testing.T) {
 	orig := hopscotch.New[uint64, uint32]()
+
+	for i := uint32(1); i <= 10; i++ {
+		orig.Put(uint64(i), i)
+	}
+
+	cpy := orig.Copy()
+
+	c := hashmaps.HashMap[uint64, uint32]{Get: cpy.Get, Each: cpy.Each}
+	checkeq(t, &c, orig.Get)
+
+	cpy.Put(0, 42)
+
+	v1, ok1 := cpy.Get(0)
+	assert.True(t, ok1)
+	assert.Equal(t, uint32(42), v1)
+
+	_, ok2 := orig.Get(0)
+	assert.False(t, ok2)
+}
+
+func TestCopyUnordered(t *testing.T) {
+	orig := unordered.New[uint64, uint32]()
 
 	for i := uint32(1); i <= 10; i++ {
 		orig.Put(uint64(i), i)
@@ -300,12 +322,14 @@ func TestUnorderedLookup(t *testing.T) {
 }
 
 func TestMaxLoad(t *testing.T) {
-	m := robin.New[int, int]()
+	t.Parallel()
 
-	assert.Error(t, m.MaxLoad(0.0))
-	assert.Error(t, m.MaxLoad(-1.0))
-	assert.Error(t, m.MaxLoad(1.0))
-	assert.Error(t, m.MaxLoad(2.0))
+	maps := setupMaps[int, int]()
+
+	for _, m := range maps {
+		assert.Error(t, m.MaxLoad(0.0))
+		assert.Error(t, m.MaxLoad(-1.0))
+	}
 }
 
 func TestComplexKeyType(t *testing.T) {
@@ -324,20 +348,20 @@ func TestComplexKeyType(t *testing.T) {
 			return 0
 		}
 		maps = []hashmaps.HashMap[dummy, string]{
-			*hashmaps.Factory(hashmaps.Config[dummy, string]{
+			*hashmaps.MustNewHashMap(hashmaps.Config[dummy, string]{
 				Type:   hashmaps.Flat,
 				Hasher: hasher,
 				Empty:  dummy{},
 			}),
-			*hashmaps.Factory(hashmaps.Config[dummy, string]{
+			*hashmaps.MustNewHashMap(hashmaps.Config[dummy, string]{
 				Type:   hashmaps.Robin,
 				Hasher: hasher,
 			}),
-			*hashmaps.Factory(hashmaps.Config[dummy, string]{
+			*hashmaps.MustNewHashMap(hashmaps.Config[dummy, string]{
 				Type:   hashmaps.Hopscotch,
 				Hasher: hasher,
 			}),
-			*hashmaps.Factory(hashmaps.Config[dummy, string]{
+			*hashmaps.MustNewHashMap(hashmaps.Config[dummy, string]{
 				Type:   hashmaps.Unordered,
 				Hasher: hasher,
 			}),
