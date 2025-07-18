@@ -21,16 +21,16 @@ type bucket[K comparable, V any] struct {
 	value V
 }
 
-// RobinHood is a hash map that uses linear probing in combination with
-// robin hood hashing as collision strategy. The map tracks the distance
+// RobinHood is a hashmap that uses linear probing in combination with
+// robin hood hashing as collision strategy. The hashmap tacks the distance
 // from the optimum bucket and minimized the variance over all buckets.
-// The expected max PSL for a full robin hood hash map is O(ln(n)).
+// The expected max PSL for a full robin hood hashmap is O(ln(n)).
 // The max load factor can be changed with `MaxLoad()`.
-// The result is a good trade off between performance and memory consumption.
-// Note that the performance for a open addressing hash map depends
+// The result is a good trade-off between performance and memory consumption.
+// Note that the performance for a open addressing hashmap depends
 // also on the key and value size. For higher storage sizes for the
 // keys and values use a hashmap that uses another strategy
-// like the golang std map or the Unordered map.
+// like the golang std hashmap. the Unordered hashmap.
 type RobinHood[K comparable, V any] struct {
 	buckets []bucket[K, V]
 	hasher  shared.HashFn[K]
@@ -55,7 +55,7 @@ func newBucketArray[K comparable, V any](capacity uintptr) []bucket[K, V] {
 	return buckets
 }
 
-// New creates a ready to use `RobinHood` hash map with default settings.
+// New creates a ready to use `RobinHood` hashmap with default settings.
 func New[K comparable, V any]() *RobinHood[K, V] {
 	return NewWithHasher[K, V](shared.GetHasher[K]())
 }
@@ -132,9 +132,9 @@ func (m *RobinHood[K, V]) resize(n uintptr) {
 	m.buckets = newm.buckets
 }
 
-// Put maps the given key to the given value. If the key already exists its
+// Put adds the given key-value pair to the hashmap. If the key already exists its
 // value will be overwritten with the new value.
-// Returns true, if the element is a new item in the hash map.
+// Returns true, if the element is a new item in the hashmap.
 func (m *RobinHood[K, V]) Put(key K, val V) bool {
 	if m.length >= m.nextResize {
 		m.resize(uintptr(cap(m.buckets)) * 2)
@@ -190,8 +190,8 @@ func (m *RobinHood[K, V]) emplace(current *bucket[K, V], idx uintptr) {
 	}
 }
 
-// Remove removes the specified key-value pair from the map.
-// Returns true, if the element was in the hash map.
+// Remove removes the specified key-value pair from the hashmap.
+// Returns true, if the element was in the hashmap.
 func (m *RobinHood[K, V]) Remove(key K) bool {
 	var (
 		idx     = m.hasher(key) & m.capMinus1
@@ -231,7 +231,7 @@ func (m *RobinHood[K, V]) Remove(key K) bool {
 	return true
 }
 
-// Clear removes all key-value pairs from the map.
+// Clear removes all key-value pairs from the hashmap.
 func (m *RobinHood[K, V]) Clear() {
 	for i := range m.buckets {
 		m.buckets[i].psl = emptyBucket
@@ -240,7 +240,7 @@ func (m *RobinHood[K, V]) Clear() {
 	m.length = 0
 }
 
-// Load return the current load of the hash map.
+// Load return the current load of the hashmap.
 func (m *RobinHood[K, V]) Load() float32 {
 	return float32(m.length) / float32(cap(m.buckets))
 }
@@ -259,12 +259,12 @@ func (m *RobinHood[K, V]) MaxLoad(lf float32) error {
 	return nil
 }
 
-// Size returns the number of items in the map.
+// Size returns the number of items in the hashmap.
 func (m *RobinHood[K, V]) Size() int {
 	return int(m.length)
 }
 
-// Copy returns a copy of this map.
+// Copy returns a copy of this hashmap.
 func (m *RobinHood[K, V]) Copy() *RobinHood[K, V] {
 	newM := &RobinHood[K, V]{
 		buckets:    make([]bucket[K, V], cap(m.buckets)),

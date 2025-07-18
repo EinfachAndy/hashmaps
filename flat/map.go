@@ -11,8 +11,8 @@ type bucket[K comparable, V any] struct {
 	value V
 }
 
-// Flat is a open addressing hash map implementation which uses linear probing
-// as conflict resolution.
+// Flat is a open addressing hashmap implementation which uses linear probing
+// to solve conflicts.
 type Flat[K comparable, V any] struct {
 	buckets   []bucket[K, V]
 	empty     K
@@ -41,10 +41,10 @@ func newBucketArray[K comparable, V any](capacity uintptr, empty K) []bucket[K, 
 	return buckets
 }
 
-// New creates a new ready to use flat hash map.
+// New creates a new ready to use flat hashmap.
 //
 // Note:
-// This map has zero memory overhead per bucket and uses therefore
+// This hashmap has a zero memory overhead per bucket and uses therefore
 // the golang default variable initialization representation as tracking.
 // This means in details a Get, Put or Remove call fails, if the key is:
 //   - 0 (int, uint, uint64, ...)
@@ -55,7 +55,7 @@ func New[K comparable, V any]() *Flat[K, V] {
 	return NewWithHasher[K, V](empty, shared.GetHasher[K]())
 }
 
-// NewWithHasher constructs a new map with the given hasher.
+// NewWithHasher constructs a new hashmap with the given hasher.
 // Furthermore the representation for a empty bucket can be set.
 func NewWithHasher[K comparable, V any](empty K, hasher shared.HashFn[K]) *Flat[K, V] {
 	m := &Flat[K, V]{
@@ -135,7 +135,7 @@ func (m *Flat[K, V]) emplace(key K, val V) {
 	m.buckets[idx].value = val
 }
 
-// Put maps the given key to the given value. If the key already exists its
+// Put adds the given key-value pair to the hashmap. If the key already exists its
 // value will be overwritten with the new value.
 func (m *Flat[K, V]) Put(key K, val V) bool {
 	if key == m.empty {
@@ -167,7 +167,7 @@ func (m *Flat[K, V]) Put(key K, val V) bool {
 	return true
 }
 
-// Remove removes the specified key-value pair from the map.
+// Remove removes the specified key-value pair from the hashmap.
 func (m *Flat[K, V]) Remove(key K) bool {
 	if key == m.empty {
 		panic(fmt.Sprintf("key %v is same as empty %v", key, m.empty))
@@ -189,6 +189,7 @@ func (m *Flat[K, V]) Remove(key K) bool {
 	m.buckets[idx].key = m.empty
 	m.length--
 
+	// back shift elements to restore the search invariant
 	for {
 		idx = (idx + 1) & m.capMinus1
 		if m.buckets[idx].key == m.empty {
@@ -217,7 +218,7 @@ func (m *Flat[K, V]) Reserve(n uintptr) {
 	}
 }
 
-// Clear removes all key-value pairs from the map.
+// Clear removes all key-value pairs from the hashmap.
 func (m *Flat[K, V]) Clear() {
 	for i := range m.buckets {
 		m.buckets[i].key = m.empty
@@ -226,12 +227,12 @@ func (m *Flat[K, V]) Clear() {
 	m.length = 0
 }
 
-// Size returns the number of items in the map.
+// Size returns the number of items in the hashmap.
 func (m *Flat[K, V]) Size() int {
 	return int(m.length)
 }
 
-// Load return the current load of the hash map.
+// Load return the current load of the hashmap.
 func (m *Flat[K, V]) Load() float32 {
 	return float32(m.length) / float32(cap(m.buckets))
 }

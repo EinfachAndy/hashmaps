@@ -11,7 +11,7 @@ import (
 // implemented as a dynamically growing bitmap with a default
 // size of 4 and a upper bound of 63. From this it follows a constant
 // lookup time for the Get function. To achieve this invariant
-// linear probing is used for finding an empty slot in the table,
+// linear probing is used for finding an empty slot in the hashmap,
 // if the next empty slot is not within the size of the neighborhood,
 // subsequent swap of closer buckets are done or the size of the
 // neighborhood is increased.
@@ -28,7 +28,7 @@ type Hopscotch[K comparable, V any] struct {
 	maxLoad          float32
 }
 
-// New creates a ready to use `Hopscotch` hash map with default settings.
+// New creates a ready to use `Hopscotch` hashmap with default settings.
 func New[K comparable, V any]() *Hopscotch[K, V] {
 	return NewWithHasher[K, V](shared.GetHasher[K]())
 }
@@ -50,7 +50,7 @@ func NewWithHasher[K comparable, V any](hasher shared.HashFn[K]) *Hopscotch[K, V
 	return m
 }
 
-// grow doubles the size size of the table
+// grow doubles the size size of the hashmap.
 //
 //go:inline
 func (m *Hopscotch[K, V]) grow() {
@@ -189,7 +189,7 @@ func (m *Hopscotch[K, V]) increaseNeighborhood() bool {
 	return false
 }
 
-// emplace adds the key-value pair to the map. It does not check
+// emplace adds the key-value pair to the hashmap. It does not check
 // the occurrence, so it expects that the give key is not already
 // in. Furthermore a resize or rehash can happen to achieve
 // the neighborhood invariant.
@@ -211,8 +211,9 @@ START:
 		}
 	}
 
-	// try to emplace the entry there, if the distance is outer the size of the
-	// neighborhood try to move another bucket closer
+	// Try to emplace the key-value pair.
+	// If the distance is outer the size of the
+	// neighborhood, move another bucket closer if possible
 	for {
 		distance := emptyIdx - homeIdx
 		if distance < m.neighborhoodSize {
@@ -246,9 +247,9 @@ EMPLACE_AFTER_REHASH:
 	goto START
 }
 
-// Put maps the given key to the given value. If the key already exists its
+// Put adds the given key-value pair to the hashmap. If the key already exists its
 // value will be overwritten with the new value.
-// Returns true, if the element is a new item in the hash map.
+// Returns true, if the element is a new item in the hashmap.
 func (m *Hopscotch[K, V]) Put(key K, val V) bool {
 	// check for resize
 	if m.length >= m.nextResize {
@@ -266,15 +267,15 @@ func (m *Hopscotch[K, V]) Put(key K, val V) bool {
 		return false
 	}
 
-	// emplace new entry
+	// emplace new key-value pair
 	m.length++
 	m.emplace(key, val, homeIdx)
 
 	return true
 }
 
-// Remove removes the specified key-value pair from the map.
-// Returns true, if the element was in the hash map.
+// Remove removes the specified key-value pair from the hashmap.
+// Returns true, if the element was in the hashmap.
 func (m *Hopscotch[K, V]) Remove(key K) bool {
 	var (
 		homeIdx    = m.hasher(key) & m.capMinus1
@@ -294,7 +295,7 @@ func (m *Hopscotch[K, V]) Remove(key K) bool {
 	return true
 }
 
-// Clear removes all key-value pairs from the map.
+// Clear removes all key-value pairs from the hashmap.
 func (m *Hopscotch[K, V]) Clear() {
 	for i := range m.buckets {
 		m.buckets[i].hopInfo = 0
@@ -317,17 +318,17 @@ func (m *Hopscotch[K, V]) MaxLoad(lf float32) error {
 	return nil
 }
 
-// Load return the current load of the hash map.
+// Load return the current load of the hashmap.
 func (m *Hopscotch[K, V]) Load() float32 {
 	return float32(m.length) / float32(cap(m.buckets))
 }
 
-// Size returns the number of items in the map.
+// Size returns the number of items in the hashmap.
 func (m *Hopscotch[K, V]) Size() int {
 	return int(m.length)
 }
 
-// Copy returns a copy of this map.
+// Copy returns a copy of this hashmap.
 func (m *Hopscotch[K, V]) Copy() *Hopscotch[K, V] {
 	newM := &Hopscotch[K, V]{
 		buckets:          make([]bucket[K, V], cap(m.buckets)),

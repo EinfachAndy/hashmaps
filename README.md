@@ -1,14 +1,14 @@
-# Golang Hash Maps
+# Golang hashmaps
 
 [![GoDoc](https://pkg.go.dev/badge/github.com/EinfachAndy/hashmaps.svg)](https://pkg.go.dev/github.com/EinfachAndy/hashmaps)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/EinfachAndy/hashmaps/blob/main/LICENSE)
 
-This package collects several hash map implementations:
+This package collects several hashmap implementations:
 
-* `Unordered` Hash Map, a classic hash table with separate chaining in a single linked list per bucket to handle collisions.
-* `Robin Hood` Hash Map, an open addressing hash table with robin hood hashing and back shifting.
-* `Hopscotch` Hash Map, an open addressing hash table with worst case constant runtime for lookup and delete operations.
-* `Flat` Hash Map, an open addressing hash table with linear probing. 
+* `Unordered` hashmap is a classic hashmap with separate chaining in a single linked list per bucket to handle collisions.
+* `Robin Hood` hashmap is an open addressing hashmap with robin hood hashing and back shifting.
+* `Hopscotch` hashmap is an open addressing hashmap with worst case constant runtime for lookup and delete operations.
+* `Flat` hashmap is an open addressing hashmap with linear probing. 
 
 # Getting started
 
@@ -48,5 +48,5 @@ The benchmarks are implemented and maintained [here](https://github.com/EinfachA
 
 # Contributing
 
-If you would like to contribute a new feature or maps, please let me know first what
+If you would like to contribute a new feature or hashmap. please let me know first what
 you would like to add (via email or issue tracker).

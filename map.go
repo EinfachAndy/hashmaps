@@ -1,4 +1,4 @@
-// Package hashmaps implements several types of hash tables.
+// Package hashmaps collects several types of hashmaps.
 package hashmaps
 
 import (
@@ -9,7 +9,7 @@ import (
 	"github.com/EinfachAndy/hashmaps/unordered"
 )
 
-// HashMap collects the basic hash maps operations as function points.
+// HashMap is the basic hashmap interface as a set of function points.
 type HashMap[K comparable, V any] struct {
 	Get     func(key K) (V, bool)
 	Put     func(key K, val V) bool
@@ -22,21 +22,32 @@ type HashMap[K comparable, V any] struct {
 	MaxLoad func(lf float32) error
 }
 
+// Type specified the type of the hashmap.
 type Type int
 
 const (
-	Hopscotch      = 0
+	Hopscotch Type = 0
 	Robin     Type = 1
-	Unordered      = 2
-	Flat           = 3
+	Unordered Type = 2
+	Flat      Type = 3
 )
 
+// Config is used by the factory to create and configure a hashmap instance.
 type Config[K comparable, V any] struct {
-	Type    Type
-	Size    uintptr
+	Type Type
+	// Size grows the hashmap to the desired size.
+	// If unset `DefaultSize` is used.
+	Size uintptr
+	// MaxLoad changes the load factor of the hashmap.
+	// This value is a trade-off between performance and memory consumption.
+	// If unset `DefaultMaxLoad` is used.
 	MaxLoad float32
-	Hasher  shared.HashFn[K]
-	Empty   K
+	// Hasher that is used. Must be configured for complex data types or slices.
+	// If unset a default hasher is used for golang basic types.
+	Hasher shared.HashFn[K]
+	// Empty is used by some hash hashmap implementations e.g.: flat hashmap
+	// to track empty buckets.
+	Empty K
 }
 
 // MustNewHashMap same as 'NewHashMap' but panics if and only if an error occurs.
@@ -49,8 +60,8 @@ func MustNewHashMap[K comparable, V any](cfg Config[K, V]) *HashMap[K, V] {
 }
 
 // NewHashMap is a factory function to instantiate different kind of generic
-// hash map implementations. A struct with function pointers is used as
-// interface. In most cases the usage of the dedicate hash map type is recommended.
+// hashmap implementations. A struct with function pointers is used as
+// interface. In most cases the usage of the dedicate hashmap type is recommended.
 func NewHashMap[K comparable, V any](cfg Config[K, V]) (*HashMap[K, V], error) {
 	if cfg.Hasher == nil {
 		cfg.Hasher = shared.GetHasher[K]()

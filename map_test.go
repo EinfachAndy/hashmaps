@@ -121,7 +121,7 @@ func fuzzLoop[K comparable](t *testing.T, n int, getRandKey func(int) K) {
 				assert.False(t, found, "key %d was not removed", key)
 			}
 
-			assert.Equal(t, len(stdm), m.Size(), "len of maps are not equal %d != %d", len(stdm), m.Size())
+			assert.Equal(t, len(stdm), m.Size(), "len of hashmaps.are not equal %d != %d", len(stdm), m.Size())
 
 			checkeq(t, &m, func(k K) (K, bool) {
 				v, ok := stdm[k]

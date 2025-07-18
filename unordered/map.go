@@ -16,9 +16,9 @@ type node[K comparable, V any] struct {
 	value V
 }
 
-// Unordered is a hash map implementation, where the elements are organized into buckets
+// Unordered is a hashmap implementation, where the elements are organized into buckets
 // depending on their hash values. Collisions are chained in a single linked list.
-// An inserted value keeps its memory address, means a element in a bucket will not copied
+// An inserted value keeps its memory address, means an element in a bucket will not copied
 // or swapped. That supports holding points instead of copy by value. see: `Insert` and `lookup`.
 type Unordered[K comparable, V any] struct {
 	buckets []linkedList[K, V]
@@ -33,7 +33,7 @@ type Unordered[K comparable, V any] struct {
 	maxLoad    float32
 }
 
-// New creates a ready to use `unordered` hash map with default settings.
+// New creates a ready to use `unordered` hashmap with default settings.
 func New[K comparable, V any]() *Unordered[K, V] {
 	return NewWithHasher[K, V](shared.GetHasher[K]())
 }
@@ -75,7 +75,7 @@ func (m *Unordered[K, V]) Get(key K) (V, bool) {
 }
 
 // Lookup returns a pointer to the stored value for this key or nil if not found.
-// The pointer is valid until the key is part of the hash map.
+// The pointer is valid until the key is part of the hashmap.
 // Note, use `Get` for small values.
 func (m *Unordered[K, V]) Lookup(key K) *V {
 	idx := m.hasher(key) & m.capMinus1
@@ -89,7 +89,7 @@ func (m *Unordered[K, V]) pushFront(head **node[K, V], newNode *node[K, V]) {
 }
 
 // Insert returns a pointer to a zero allocated value. These pointer is valid until
-// the key is part of the hash map. Note, use `Put` for small values.
+// the key is part of the hashmap. Note, use `Put` for small values.
 func (m *Unordered[K, V]) Insert(key K) (*V, bool) {
 	if m.length >= m.nextResize {
 		m.grow()
@@ -128,7 +128,7 @@ func (m *Unordered[K, V]) resize(n uintptr) {
 	}
 }
 
-// Clear removes all key-value pairs from the map.
+// Clear removes all key-value pairs from the hashmap.
 func (m *Unordered[K, V]) Clear() {
 	for i := range m.buckets {
 		m.buckets[i].head = nil
@@ -137,12 +137,12 @@ func (m *Unordered[K, V]) Clear() {
 	m.length = 0
 }
 
-// Size returns the number of items in the map.
+// Size returns the number of items in the hashmap.
 func (m *Unordered[K, V]) Size() int {
 	return int(m.length)
 }
 
-// Load return the current load of the hash map.
+// Load return the current load of the hashmap.
 func (m *Unordered[K, V]) Load() float32 {
 	return float32(m.length) / float32(cap(m.buckets))
 }
@@ -165,9 +165,9 @@ func (m *Unordered[K, V]) Reserve(n uintptr) {
 	}
 }
 
-// Put maps the given key to the given value. If the key already exists its
+// Put adds the given key-value pair to the hashmap. If the key already exists its
 // value will be overwritten with the new value.
-// Returns true, if the element is a new item in the hash map.
+// Returns true, if the element is a new item in the hashmap.
 //
 //go:inline
 func (m *Unordered[K, V]) Put(key K, val V) bool {
@@ -177,8 +177,8 @@ func (m *Unordered[K, V]) Put(key K, val V) bool {
 	return isNew
 }
 
-// Remove removes the specified key-value pair from the map.
-// Returns true, if the element was in the hash map.
+// Remove removes the specified key-value pair from the hashmap.
+// Returns true, if the element was in the hashmap.
 func (m *Unordered[K, V]) Remove(key K) bool {
 	var (
 		idx     = m.hasher(key) & m.capMinus1
@@ -211,7 +211,7 @@ func (m *Unordered[K, V]) Remove(key K) bool {
 	return true
 }
 
-// Copy returns a copy of this map.
+// Copy returns a copy of this hashmap.
 func (m *Unordered[K, V]) Copy() *Unordered[K, V] {
 	newM := &Unordered[K, V]{
 		buckets:   make([]linkedList[K, V], cap(m.buckets)),
@@ -230,7 +230,7 @@ func (m *Unordered[K, V]) Copy() *Unordered[K, V] {
 
 // MaxLoad forces resizing if the ratio is reached.
 // Useful values are in range [0.7-1.0].
-// Returns ErrOutOfRange if `lf` is not in the open range (0.0,1.0).
+// Returns ErrOutOfRange if `lf` is less than or equal zero.
 func (m *Unordered[K, V]) MaxLoad(lf float32) error {
 	if lf <= 0.0 {
 		return fmt.Errorf("%f: %w", lf, shared.ErrOutOfRange)
