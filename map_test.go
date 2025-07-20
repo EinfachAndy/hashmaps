@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/EinfachAndy/hashmaps"
+	"github.com/EinfachAndy/hashmaps/clrobin"
 	"github.com/EinfachAndy/hashmaps/flat"
 	"github.com/EinfachAndy/hashmaps/hopscotch"
 	"github.com/EinfachAndy/hashmaps/robin"
@@ -29,6 +30,8 @@ func randString(n int) string {
 }
 
 func setupMaps[K comparable, V comparable]() []hashmaps.HashMap[K, V] {
+	clr := clrobin.New[K, V]()
+
 	return []hashmaps.HashMap[K, V]{
 		*hashmaps.MustNewHashMap(hashmaps.Config[K, V]{
 			Type:    hashmaps.Hopscotch,
@@ -45,6 +48,28 @@ func setupMaps[K comparable, V comparable]() []hashmaps.HashMap[K, V] {
 			Type:    hashmaps.Robin,
 			MaxLoad: 0.90,
 		}),
+		{
+			Get: clr.Load,
+			Put: func(key K, val V) bool {
+				_, loaded := clr.Swap(key, val)
+				return !loaded
+			},
+			Remove: func(key K) bool {
+				_, loaded := clr.LoadAndDelete(key)
+				return loaded
+			},
+			Reserve: clr.Reserve,
+			Clear:   clr.Clear,
+			Size:    clr.Size,
+			Each:    clr.Range,
+			Load:    func() float32 { return 0.0 },
+			MaxLoad: func(lf float32) error {
+				if lf > 0.0 {
+					return nil
+				}
+				return shared.ErrOutOfRange
+			},
+		},
 	}
 }
 

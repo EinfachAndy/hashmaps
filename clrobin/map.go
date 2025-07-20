@@ -1,6 +1,10 @@
 package clrobin
 
-import "github.com/EinfachAndy/hashmaps/shared"
+import (
+	"sync"
+
+	"github.com/EinfachAndy/hashmaps/shared"
+)
 
 const (
 	emptyBucket = -1
@@ -19,6 +23,8 @@ type bucket[K comparable, V comparable] struct {
 
 // CLRobin is a concurrent locked robin hood hashmap.
 type CLRobin[K comparable, V comparable] struct {
+	sync.RWMutex
+
 	hasher shared.HashFn[K]
 
 	// length stores the current inserted elements
@@ -45,16 +51,79 @@ func NewWithHasher[K comparable, V comparable](hasher shared.HashFn[K]) *CLRobin
 	return m
 }
 
+//go:inline
+func newBucketArray[K comparable, V comparable](capacity uintptr) []bucket[K, V] {
+	buckets := make([]bucket[K, V], capacity)
+
+	for i := range buckets {
+		buckets[i].psl = emptyBucket
+	}
+
+	return buckets
+}
+
+//go:inline
 func (m *CLRobin[K, V]) grow() {
 	m.resize((m.capMinus1 + 1) * 2)
 }
 
+//go:inline
 func (m *CLRobin[K, V]) resize(n uintptr) {
+	newm := CLRobin[K, V]{
+		capMinus1:  n - 1,
+		length:     m.length,
+		buckets:    newBucketArray[K, V](n),
+		hasher:     m.hasher,
+		maxLoad:    m.maxLoad,
+		nextResize: uintptr(float32(n) * m.maxLoad),
+	}
+
+	for i := range m.buckets {
+		if m.buckets[i].psl != emptyBucket {
+			idx := newm.hasher(m.buckets[i].key) & newm.capMinus1
+			m.buckets[i].psl = 0
+			newm.emplace(&m.buckets[i], idx)
+		}
+	}
+
+	m.nextResize = newm.nextResize
+	m.capMinus1 = newm.capMinus1
+	m.buckets = newm.buckets
+}
+
+// emplace applies the Robin Hood creed to all following buckets until a empty is found.
+// Robin Hood creed: "takes from the rich and gives to the poor".
+// rich means, low psl
+// poor means, higher psl
+//
+// The result is a better distribution of the PSL values,
+// where the expected length of the longest PSL is O(log(n)).
+//
+//go:inline
+func (m *CLRobin[K, V]) emplace(current *bucket[K, V], idx uintptr) {
+	for ; ; current.psl++ {
+		if m.buckets[idx].psl == emptyBucket {
+			// emplace the element, a valid bucket was found
+			m.buckets[idx] = *current
+			return
+		}
+
+		if current.psl > m.buckets[idx].psl {
+			// swap values, apply the Robin Hood creed
+			*current, m.buckets[idx] = m.buckets[idx], *current
+		}
+
+		// next index
+		idx = (idx + 1) & m.capMinus1
+	}
 }
 
 // Reserve sets the number of buckets to the most appropriate to contain at least n elements.
 // If n is lower than that, the function may have no effect.
 func (m *CLRobin[K, V]) Reserve(n uintptr) {
+	m.Lock()
+	defer m.Unlock()
+
 	var (
 		needed = uintptr(float32(n) / m.maxLoad)
 		newCap = uintptr(shared.NextPowerOf2(uint64(needed)))
@@ -66,6 +135,9 @@ func (m *CLRobin[K, V]) Reserve(n uintptr) {
 }
 
 func (m *CLRobin[K, V]) Size() int {
+	m.RLock()
+	defer m.RUnlock()
+
 	return int(m.length)
 }
 
@@ -82,7 +154,21 @@ func (m *CLRobin[K, V]) Delete(key K) {
 // or nil if no value is present.
 // The ok result indicates whether value was found in the map.
 func (m *CLRobin[K, V]) Load(key K) (V, bool) {
-	var v V
+	m.RLock()
+	defer m.RUnlock()
+
+	var (
+		idx = m.hasher(key) & m.capMinus1
+		v   V
+	)
+
+	for psl := int8(0); psl <= m.buckets[idx].psl; psl++ {
+		if m.buckets[idx].key == key {
+			return m.buckets[idx].value, true
+		}
+		// next index
+		idx = (idx + 1) & m.capMinus1
+	}
 
 	return v, false
 }
@@ -90,9 +176,47 @@ func (m *CLRobin[K, V]) Load(key K) (V, bool) {
 // LoadAndDelete deletes the value for a key, returning the previous value if any.
 // The loaded result reports whether the key was present.
 func (m *CLRobin[K, V]) LoadAndDelete(key K) (V, bool) {
-	var v V
+	m.Lock()
+	defer m.Unlock()
 
-	return v, false
+	var (
+		idx     = m.hasher(key) & m.capMinus1
+		current *bucket[K, V]
+		v       V
+	)
+
+	// search for the key
+	for psl := int8(0); psl <= m.buckets[idx].psl; psl++ {
+		if m.buckets[idx].key == key {
+			current = &m.buckets[idx]
+			break
+		}
+		// next index
+		idx = (idx + 1) & m.capMinus1
+	}
+
+	if current == nil {
+		return v, false
+	}
+	v = current.value
+
+	// remove the key
+	m.length--
+	// mark as empty, because we want to remove it
+	current.psl = emptyBucket
+
+	idx = (idx + 1) & m.capMinus1
+	next := &m.buckets[idx]
+	// now, back shift all buckets until we found a optimum or empty one
+	for next.psl > 0 {
+		next.psl--
+		*current, *next = *next, *current // swap values
+		current = next
+		idx = (idx + 1) & m.capMinus1
+		next = &m.buckets[idx]
+	}
+
+	return v, true
 }
 
 // LoadOrStore returns the existing value for the key if present.
@@ -111,10 +235,36 @@ func (m *CLRobin[K, V]) Store(key K, value V) {
 
 // Swap swaps the value for a key and returns the previous value if any.
 // The loaded result reports whether the key was present.
-func (m *CLRobin[K, V]) Swap(key K, value V) (previous V, loaded bool) {
-	var v V
+func (m *CLRobin[K, V]) Swap(key K, value V) (V, bool) {
+	m.Lock()
+	defer m.Unlock()
 
-	return v, false
+	if m.length >= m.nextResize {
+		m.grow()
+	}
+
+	var (
+		idx = m.hasher(key) & m.capMinus1
+		psl = int8(0)
+	)
+
+	// search for the key
+	for ; psl <= m.buckets[idx].psl; psl++ {
+		if m.buckets[idx].key == key {
+			old := m.buckets[idx].value
+			m.buckets[idx].value = value
+			return old, true // update already existing value
+		}
+		// next index
+		idx = (idx + 1) & m.capMinus1
+	}
+
+	m.length++
+
+	newBucket := bucket[K, V]{key: key, value: value, psl: psl}
+	m.emplace(&newBucket, idx)
+
+	return value, false
 }
 
 // CompareAndSwap swaps the old and new values for key
@@ -140,8 +290,27 @@ func (m *CLRobin[K, V]) CompareAndDelete(key K, old V) (deleted bool) {
 // Range may be O(N) with the number of elements in the map even
 // if f returns false after a constant number of calls.
 func (m *CLRobin[K, V]) Range(f func(key K, value V) bool) {
+	m.RLock()
+	defer m.RUnlock()
+
+	for i := range m.buckets {
+		if m.buckets[i].psl != emptyBucket {
+			if stop := f(m.buckets[i].key, m.buckets[i].value); stop {
+				// stop iteration
+				return
+			}
+		}
+	}
 }
 
 // Clear deletes all the entries, resulting in an empty Map.
 func (m *CLRobin[K, V]) Clear() {
+	m.Lock()
+	defer m.Unlock()
+
+	for i := range m.buckets {
+		m.buckets[i].psl = emptyBucket
+	}
+
+	m.length = 0
 }
