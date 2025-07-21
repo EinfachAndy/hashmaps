@@ -2,6 +2,7 @@ package clrobin
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/EinfachAndy/hashmaps/shared"
 )
@@ -21,18 +22,26 @@ type bucket[K comparable, V comparable] struct {
 	value V
 }
 
+//go:inline
+func (b *bucket[K, V]) isEmpty() bool {
+	return b.psl == emptyBucket
+}
+
+type storage[K comparable, V comparable] struct {
+	length     atomic.Int64
+	nextResize int
+	capMinus1  int
+	buckets    []bucket[K, V]
+}
+
 // CLRobin is a concurrent locked robin hood hashmap.
 type CLRobin[K comparable, V comparable] struct {
 	sync.RWMutex
 
-	hasher shared.HashFn[K]
+	hasher  shared.HashFn[K]
+	maxLoad float32
 
-	// length stores the current inserted elements
-	length     uintptr
-	nextResize uintptr
-	capMinus1  uintptr
-	buckets    []bucket[K, V]
-	maxLoad    float32
+	storage atomic.Pointer[storage[K, V]]
 }
 
 // New creates a new ready to use concurrent locked robin hood hashmap.
@@ -46,49 +55,57 @@ func NewWithHasher[K comparable, V comparable](hasher shared.HashFn[K]) *CLRobin
 		hasher:  hasher,
 		maxLoad: shared.DefaultMaxLoad,
 	}
-	m.Reserve(shared.DefaultSize)
+	m.storage.Store(newStorage[K, V](shared.DefaultSize, m.maxLoad))
 
 	return m
 }
 
 //go:inline
-func newBucketArray[K comparable, V comparable](capacity uintptr) []bucket[K, V] {
+func newStorage[K comparable, V comparable](capacity int, maxLoad float32) *storage[K, V] {
 	buckets := make([]bucket[K, V], capacity)
 
 	for i := range buckets {
 		buckets[i].psl = emptyBucket
 	}
 
-	return buckets
+	return &storage[K, V]{
+		capMinus1:  capacity - 1,
+		buckets:    buckets,
+		nextResize: int(float32(capacity) * maxLoad),
+	}
 }
 
 //go:inline
-func (m *CLRobin[K, V]) grow() {
-	m.resize((m.capMinus1 + 1) * 2)
-}
-
-//go:inline
-func (m *CLRobin[K, V]) resize(n uintptr) {
-	newm := CLRobin[K, V]{
-		capMinus1:  n - 1,
-		length:     m.length,
-		buckets:    newBucketArray[K, V](n),
-		hasher:     m.hasher,
-		maxLoad:    m.maxLoad,
-		nextResize: uintptr(float32(n) * m.maxLoad),
+func (m *CLRobin[K, V]) checkForResize() *storage[K, V] {
+	// next 3 lines must be atomic without mutex
+	s := m.storage.Load()
+	if int(s.length.Load()) >= s.nextResize {
+		m.resize((s.capMinus1 + 1) * 2)
+		s = m.storage.Load()
 	}
 
-	for i := range m.buckets {
-		if m.buckets[i].psl != emptyBucket {
-			idx := newm.hasher(m.buckets[i].key) & newm.capMinus1
-			m.buckets[i].psl = 0
-			newm.emplace(&m.buckets[i], idx)
+	return s
+}
+
+//go:inline
+func (m *CLRobin[K, V]) resize(n int) {
+	var (
+		new = newStorage[K, V](n, m.maxLoad)
+		old = m.storage.Load()
+	)
+
+	new.length.Store(old.length.Load())
+
+	for i := range old.buckets {
+		if !old.buckets[i].isEmpty() {
+			b := old.buckets[i]
+			b.psl = 0
+			idx := m.hasher(b.key) & uintptr(new.capMinus1)
+			new.emplace(&b, idx)
 		}
 	}
 
-	m.nextResize = newm.nextResize
-	m.capMinus1 = newm.capMinus1
-	m.buckets = newm.buckets
+	m.storage.Store(new)
 }
 
 // emplace applies the Robin Hood creed to all following buckets until a empty is found.
@@ -100,21 +117,21 @@ func (m *CLRobin[K, V]) resize(n uintptr) {
 // where the expected length of the longest PSL is O(log(n)).
 //
 //go:inline
-func (m *CLRobin[K, V]) emplace(current *bucket[K, V], idx uintptr) {
+func (s *storage[K, V]) emplace(current *bucket[K, V], idx uintptr) {
 	for ; ; current.psl++ {
-		if m.buckets[idx].psl == emptyBucket {
+		if s.buckets[idx].isEmpty() {
 			// emplace the element, a valid bucket was found
-			m.buckets[idx] = *current
+			s.buckets[idx] = *current
 			return
 		}
 
-		if current.psl > m.buckets[idx].psl {
+		if current.psl > s.buckets[idx].psl {
 			// swap values, apply the Robin Hood creed
-			*current, m.buckets[idx] = m.buckets[idx], *current
+			*current, s.buckets[idx] = s.buckets[idx], *current
 		}
 
 		// next index
-		idx = (idx + 1) & m.capMinus1
+		idx = (idx + 1) & uintptr(s.capMinus1)
 	}
 }
 
@@ -125,11 +142,11 @@ func (m *CLRobin[K, V]) Reserve(n uintptr) {
 	defer m.Unlock()
 
 	var (
-		needed = uintptr(float32(n) / m.maxLoad)
-		newCap = uintptr(shared.NextPowerOf2(uint64(needed)))
+		needed = int(float32(n) / m.maxLoad)
+		newCap = int(shared.NextPowerOf2(uint64(needed)))
 	)
 
-	if uintptr(cap(m.buckets)) < newCap {
+	if cap(m.storage.Load().buckets) < newCap {
 		m.resize(newCap)
 	}
 }
@@ -138,7 +155,7 @@ func (m *CLRobin[K, V]) Size() int {
 	m.RLock()
 	defer m.RUnlock()
 
-	return int(m.length)
+	return int(m.storage.Load().length.Load())
 }
 
 /*****************************************
@@ -158,16 +175,17 @@ func (m *CLRobin[K, V]) Load(key K) (V, bool) {
 	defer m.RUnlock()
 
 	var (
-		idx = m.hasher(key) & m.capMinus1
+		s   = m.storage.Load()
+		idx = m.hasher(key) & uintptr(s.capMinus1)
 		v   V
 	)
 
-	for psl := int8(0); psl <= m.buckets[idx].psl; psl++ {
-		if m.buckets[idx].key == key {
-			return m.buckets[idx].value, true
+	for psl := int8(0); psl <= s.buckets[idx].psl; psl++ {
+		if s.buckets[idx].key == key {
+			return s.buckets[idx].value, true
 		}
 		// next index
-		idx = (idx + 1) & m.capMinus1
+		idx = (idx + 1) & uintptr(s.capMinus1)
 	}
 
 	return v, false
@@ -180,19 +198,20 @@ func (m *CLRobin[K, V]) LoadAndDelete(key K) (V, bool) {
 	defer m.Unlock()
 
 	var (
-		idx     = m.hasher(key) & m.capMinus1
+		s       = m.storage.Load()
+		idx     = m.hasher(key) & uintptr(s.capMinus1)
 		current *bucket[K, V]
 		v       V
 	)
 
 	// search for the key
-	for psl := int8(0); psl <= m.buckets[idx].psl; psl++ {
-		if m.buckets[idx].key == key {
-			current = &m.buckets[idx]
+	for psl := int8(0); psl <= s.buckets[idx].psl; psl++ {
+		if s.buckets[idx].key == key {
+			current = &s.buckets[idx]
 			break
 		}
 		// next index
-		idx = (idx + 1) & m.capMinus1
+		idx = (idx + 1) & uintptr(s.capMinus1)
 	}
 
 	if current == nil {
@@ -201,19 +220,19 @@ func (m *CLRobin[K, V]) LoadAndDelete(key K) (V, bool) {
 	v = current.value
 
 	// remove the key
-	m.length--
+	s.length.Add(-1)
 	// mark as empty, because we want to remove it
 	current.psl = emptyBucket
 
-	idx = (idx + 1) & m.capMinus1
-	next := &m.buckets[idx]
+	idx = (idx + 1) & uintptr(s.capMinus1)
+	next := &s.buckets[idx]
 	// now, back shift all buckets until we found a optimum or empty one
 	for next.psl > 0 {
 		next.psl--
 		*current, *next = *next, *current // swap values
 		current = next
-		idx = (idx + 1) & m.capMinus1
-		next = &m.buckets[idx]
+		idx = (idx + 1) & uintptr(s.capMinus1)
+		next = &s.buckets[idx]
 	}
 
 	return v, true
@@ -239,30 +258,27 @@ func (m *CLRobin[K, V]) Swap(key K, value V) (V, bool) {
 	m.Lock()
 	defer m.Unlock()
 
-	if m.length >= m.nextResize {
-		m.grow()
-	}
+	s := m.checkForResize()
 
 	var (
-		idx = m.hasher(key) & m.capMinus1
+		idx = m.hasher(key) & uintptr(s.capMinus1)
 		psl = int8(0)
 	)
 
 	// search for the key
-	for ; psl <= m.buckets[idx].psl; psl++ {
-		if m.buckets[idx].key == key {
-			old := m.buckets[idx].value
-			m.buckets[idx].value = value
+	for ; psl <= s.buckets[idx].psl; psl++ {
+		if s.buckets[idx].key == key {
+			old := s.buckets[idx].value
+			s.buckets[idx].value = value
 			return old, true // update already existing value
 		}
 		// next index
-		idx = (idx + 1) & m.capMinus1
+		idx = (idx + 1) & uintptr(s.capMinus1)
 	}
 
-	m.length++
-
+	s.length.Add(1)
 	newBucket := bucket[K, V]{key: key, value: value, psl: psl}
-	m.emplace(&newBucket, idx)
+	s.emplace(&newBucket, idx)
 
 	return value, false
 }
@@ -293,9 +309,10 @@ func (m *CLRobin[K, V]) Range(f func(key K, value V) bool) {
 	m.RLock()
 	defer m.RUnlock()
 
-	for i := range m.buckets {
-		if m.buckets[i].psl != emptyBucket {
-			if stop := f(m.buckets[i].key, m.buckets[i].value); stop {
+	s := m.storage.Load()
+	for i := range s.buckets {
+		if !s.buckets[i].isEmpty() {
+			if stop := f(s.buckets[i].key, s.buckets[i].value); stop {
 				// stop iteration
 				return
 			}
@@ -308,9 +325,5 @@ func (m *CLRobin[K, V]) Clear() {
 	m.Lock()
 	defer m.Unlock()
 
-	for i := range m.buckets {
-		m.buckets[i].psl = emptyBucket
-	}
-
-	m.length = 0
+	m.storage.Store(newStorage[K, V](shared.DefaultSize, m.maxLoad))
 }
